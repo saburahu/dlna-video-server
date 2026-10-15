@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: 初回導入ガイド
+    url: https://github.com/saburahu/pt3-recording-server/blob/main/docs/SETUP.md
+    about: Windows ZIP、FFmpeg、Setupの入力方法
+  - name: 症状別トラブルシューティング
+    url: https://github.com/saburahu/pt3-recording-server/blob/main/docs/TROUBLESHOOTING.md
+    about: 発見、一覧、再生、Seek、PCR索引の確認方法

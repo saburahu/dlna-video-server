@@ -1,59 +1,42 @@
 # PT3録画DLNAサーバー
 
-家庭内LANのテレビ・レコーダー・VLCへ、PC上の録画・動画ファイルを配信するWindows向けUPnP/DLNA MediaServerです。初回公開版はv0.2.0です。[Windows配布版と更新情報](https://github.com/saburahu/pt3-recording-server/releases/latest)を参照してください。
+Windows PC上の録画・動画を、家庭内LANのテレビ・レコーダー・VLCで見るためのソフトウェアです。**サーバー自体に録画・チューナー制御機能はありません。** 適法に利用できる平文メディアを扱い、DRM・DTCP-IP・放送の暗号化を解除する機能は提供しません。
 
-このサーバー自身には録画・チューナー制御機能はありません。利用権限のある平文メディアだけを扱ってください。DRM、DTCP-IP、放送の暗号化を解除する機能はありません。
+**[最新版のダウンロード](https://github.com/saburahu/pt3-recording-server/releases/latest)** → AssetsのWindows ZIPを選びます。`Source code (zip)` は利用者向け配布版ではありません。
 
-## できること
+## できること・必要なもの
 
-- 「録画番組 → すべて / フォルダ別」。複数保存ルートを独立した階層として表示し、SQLiteで増分管理します。
-- 通常TSを配信し、PCR索引によるTimeSeekを提供。アイドル時の索引事前生成、元ファイルの確実な削除に連動した安全なキャッシュ清掃。
-- 対応するMP4/MKV/AVI/WMV/ASFをオンデマンド変換。通信fingerprintに応じAVC JITまたは独立PCR PIDのMPEG-2 JITを選択。最大2本まで独立して再生・Seek・停止できます。
-- VLC等の対応候補には、元ファイルのHTTP Direct Playとbyte Rangeを優先します。未判定クライアントへの無条件な再生保証はしません。
-- ローカル管理画面で保存先、サーバー名、クライアントごとの限定AVI互換性補正などを設定できます。
+- TS、MP4、MKV、AVI、WMV／ASFなどを「録画番組 → すべて／フォルダ別」から参照。保存先は複数登録でき、サブフォルダも探索します。
+- REGZA等には必要に応じて再生時に変換し、VLCには可能な範囲で元ファイルをそのまま配信します。変換は最大2本同時。対応可否は実際のcodec・機器で変わります。
+- 保存先は通常60秒ごとに自動更新。TSのSeekに使うPCR索引は、空き時間に準備します。
+- 配布対象はWindows 10／11 **x64**。今回の導入試験はWindows 11で、Windows 10のクリーンVM試験は未実施です。
+- Node.jsは同梱済み。Git・npm・TypeScriptの導入は不要です。**FFmpegとffprobeは別途必要**です。CPUで変換し、NVIDIA GPUは不要です。
 
-## 必要な環境
+## 初回再生まで
 
-Windows 10/11 x64。更新されたWindowsと、家庭内の信頼できるPrivateネットワークを使用してください。単独1080p JITは近年の4～6コアCPU・8GiB以上を目安とし、2本同時は6コア以上・16GiB以上を推奨しますが、入力解像度・codec・CPUにより異なります。CPUソフトウェア変換を使い、NVIDIA GPUは不要です。
+1. Windows ZIPをダウンロードし、**すべて展開**します。ZIP内から直接実行しないでください。
+2. [FFmpeg導入ガイド](docs/FFMPEG.md)に従い、`ffmpeg.exe` と `ffprobe.exe` のある **binフォルダ**を用意します。v0.2.0で実機確認した版は8.1.2です。最新版という意味ではありません。
+3. `Setup.cmd` を開き、録画フォルダとFFmpegのbin等を入力します。[入力項目ごとの説明](docs/SETUP.md)を参照してください。
+4. Setupは最後にサーバーを起動し、管理画面を開きます。**起動済みならStart.cmdを重ねて実行する必要はありません。** Windows FirewallはPrivateネットワークだけ許可します。
+5. テレビ等で指定したサーバー名 →「録画番組」→「すべて」または「フォルダ別」→ 動画を選びます。
 
-公開版のPC検証環境はNode.js 24.22.0 LTS、FFmpeg/ffprobe 8.1.2 Windows x64です。**Node.jsはポータブルZIPへ同梱しますが、FFmpeg/ffprobeは同梱しません。** [GyanのWindowsビルド](https://www.gyan.dev/ffmpeg/builds/)から現行essentials/full buildを別途入手し、Setupでbinフォルダを指定してください。古い7.1.1は受け付けません。バージョン下限を満たすことは脆弱性がない証明ではなく、入手元の更新情報を確認してください。
+管理画面は**サーバーPC自身の** `http://localhost:19090`（ポート変更時はその番号）です。**別PCからの管理は現版ではできません。** DLNAで動画を見る機器は別PC・テレビでも構いません。認証付きLAN管理は未実装です。
 
-## Windowsで使う
+v0.2.0 ZIPやRelease添付の初期文書より、このWeb版の手順を優先してください。今回の文書更新でZIPの動作は変更していません。
 
-1. 正式公開後のWindowsポータブルZIPを新しいローカルフォルダへ展開します。録画・NAS・dataフォルダへアプリを展開しないでください。
-2. FFmpegを別途展開し、ffmpeg.exeとffprobe.exeがある同じbinフォルダを用意します。
-3. Setup.cmdを実行します。独立したローカルのデータ保存先、LAN側IPv4、表示名、録画フォルダ、FFmpegのbinを指定します。Node/npm/TypeScriptの手動導入は不要です。
-4. Windowsファイアウォールで同梱runtime/node.exeを**Privateネットワークだけ**許可します。既定TCP 19090とSSDPのUDP 1900を使用します。
-5. Start.cmdで起動し、**サーバーPC自身の** `http://localhost:19090` を開きます。管理画面/APIは既定でlocalhost限定です。現版にはLAN管理を有効化する設定がなく、別PC・テレビから管理画面は開けません。サーバーPC上のブラウザで設定してください。将来の認証付きLAN管理は未実装です。
-6. テレビ等のDLNA一覧から指定したサーバー名を開き、「録画番組」を選びます。
+## 動作実績と困ったとき
 
-NASの録画はログオンユーザーのアクセス権を使います。設定・SQLite・PCRキャッシュはローカルディスクへ保存します。任意のログオン時自動起動は用意していますが、ログオン前のWindowsサービスではありません。
+[機器・形式・Seekの確認範囲](docs/COMPATIBILITY.md)に、REGZA ZP2、55X9900R、49Z700X、DBR-T1010、DBR-4KZ600、iPad版VLCの実績を記載しています。全機種・全ファイルの対応保証ではありません。新runtimeでの実機確認は3台・各代表MP4／HEVC MKVで、全機能の再検証ではありません。
 
-録画フォルダは通常60秒ごとに軽いstat走査で更新します。Browseは全編PCR解析を待ちません。初回の索引生成にはディスク速度に応じた時間がかかり、索引なしで取得した一覧を機器が保持しているとシークバーが出ない場合があります。生成後に停止・一覧再取得・再生を行ってください。索引の進捗と一時停止は管理画面から確認できます。
+| 症状 | 最初に見るページ |
+|---|---|
+| テレビにサーバー／番組が見えない | [接続・一覧](docs/TROUBLESHOOTING.md#サーバーが見つからない) |
+| 再生できない・黒画面・無音・AVIが崩れる | [再生](docs/TROUBLESHOOTING.md#選択すると再生できませんになる) |
+| 開始が遅い・タイムバーなし・Seek不可 | [PCR索引とSeek](docs/TROUBLESHOOTING.md#pcr索引とseek) |
+| FFmpegが認識されない | [FFmpegの確認](docs/FFMPEG.md#認識されないとき) |
+| 更新・移行・削除をしたい | [バックアップと更新](docs/UPDATE.md) |
+| 不具合を報告したい | [ログの採り方](docs/LOGS.md) → [Issues](https://github.com/saburahu/pt3-recording-server/issues/new/choose) |
 
-## 再生互換性
+**信頼できる家庭内LAN専用です。インターネットへポートを開放しないでください。** メディア閲覧に利用者別認証やTLSはありません。[セキュリティ](docs/SECURITY.md)
 
-[対応状況と制限](docs/COMPATIBILITY.md)を参照してください。開発版でREGZA ZP2/55X9900R/49Z700X/DBR-4KZ600、DBR-T1010、iPad版VLCの代表素材を人が確認していますが、全機種・全ファイルの保証ではありません。新runtimeはPrivate版の隔離検証を先に実施し、ZP2/55X9900R/DBR-T1010で代表MP4/HEVC MKVの再生を確認しています。ほかの機器や全編・同時実機再生はPC検証と区別して記録します。
-
-## 更新・バックアップ・削除
-
-再生停止 → Stop.cmd → Backup.cmd → 新版を別アプリフォルダへ展開 → Setup.cmdで同じdataを選択します。設定・UDN・catalog・既存PCRキャッシュを保持します。同じdataやUDNで旧新版を同時起動しないでください。[詳細とロールバック](docs/UPDATE.md)。
-
-削除はStop.cmd、Remove-autostart.cmdの後でアプリフォルダを削除します。録画・data・バックアップは自動削除しません。
-
-## 困ったとき
-
-- FFmpegがない/古い: Setupでbinを再指定し、Diagnose.cmdを実行します。ffmpeg/ffprobeは同じビルドのものを使用してください。
-- テレビで見えない: Privateファイアウォール、LAN IPv4、同じLAN/SSID、AP isolationやmulticast遮断を確認。VPN・ゲストネットワークでは未検証です。
-- busy: JIT枠は最大2本です。3本目は既存再生を止めずに拒否します。Direct Playや通常TSはJIT枠を消費しません。
-- ログ: data/logsと管理画面の診断を確認してください。ログは録画タイトル・パス・IP・UDNを含みます。GitHubや第三者へ添付する前に内容を確認・匿名化してください。自動アップロードはありません。[セキュリティ](docs/SECURITY.md)。
-
-**インターネットへポートを開放したり、管理画面をリバースプロキシで公開しないでください。** DLNAメディア閲覧はLAN内の信頼できる端末向けで、利用者ごとの認証やTLSはありません。
-
-## ソースから開発する
-
-更新済みNode.js 24 LTS以上とFFmpeg/ffprobeを別途用意し、`npm ci` → `npm run typecheck` → `npm test` → `npm run build`。`PT3_DATA_DIR`/`PT3_LOG_DIR`で独立したローカルdata/logを指定し、`PT3_FFMPEG`/`PT3_FFPROBE`で実行ファイルを指定して `npm start`。録画や実行時データはGitへ追加しません。[構築と公開更新手順](docs/DEVELOPMENT.md)。
-
-## ライセンス
-
-本体は[MIT License](LICENSE)、著作権者表記は `saburahu` です。第三者ソフトウェアにはそれぞれ固有のライセンスが適用されます。[監査と配布方針](docs/LICENSE_POLICY.md)、[第三者ライセンス](third-party/README.md)を参照してください。
+本体は[MIT License](LICENSE)、Copyright (c) 2026 saburahu。[第三者ライセンス](third-party/README.md)。開発する方は[開発・ビルド手順](docs/DEVELOPMENT.md)を参照してください。
