@@ -1,0 +1,45 @@
+import assert from 'node:assert/strict';
+import {promises as fs,createReadStream,createWriteStream} from 'node:fs';
+import path from 'node:path';import {randomUUID,createHash} from 'node:crypto';import {once} from 'node:events';
+import {streamCommand,compactFields} from './full-process.js';
+import {ffprobe,execute,commandOptions} from './prepare-executor.js';
+import {minimumRemovalTicks} from './cadence-normalization.js';
+import type {TargetTimingPolicy} from './cadence-plan.js';
+import {fileFingerprint} from './file-fingerprint.js';
+import {snapshotHash,type Fingerprint} from './playback-shadow.js';
+
+export const FULL_ANALYSIS_VERSION='full-timeline-v1';
+export interface PictureRecord {pts:number;duration:number;index:number;key:boolean;retained:boolean}
+export function pictureBytes(p:PictureRecord){const b=Buffer.alloc(24);b.writeDoubleLE(p.pts);b.writeDoubleLE(p.duration,8);b.writeUInt32LE((p.key?1:0)|(p.retained?2:0),16);b.writeUInt32LE(p.index,20);return b;}
+export async function* readPictures(file:string):AsyncGenerator<PictureRecord>{let carry:Buffer=Buffer.alloc(0);for await(const c of createReadStream(file,{highWaterMark:65520})){const b=carry.length?Buffer.concat([carry,c]):c;let i=0;while(i+24<=b.length){const flags=b.readUInt32LE(i+16);yield {pts:b.readDoubleLE(i),duration:b.readDoubleLE(i+8),index:b.readUInt32LE(i+20),key:!!(flags&1),retained:!!(flags&2)};i+=24;}carry=Buffer.from(b.subarray(i));}assert.equal(carry.length,0,'Truncated timeline');}
+export class IncrementalSelection {last?:PictureRecord;previous?:number;count=0;retained=0;dropped=0;dropRun=0;maxDropRun=0;outsideShort=0;
+ constructor(public minimumTicks:number){assert.ok(Number.isSafeInteger(minimumTicks)&&minimumTicks>0);}
+ push(p:PictureRecord){assert.ok(Number.isSafeInteger(p.pts)&&Number.isSafeInteger(p.duration)&&p.duration>=0&&(this.previous===undefined||p.pts>this.previous));const keep=!this.last||p.pts-this.last.pts>=this.minimumTicks;this.count++;if(keep){this.last={...p,retained:true};this.retained++;this.dropRun=0;}else{this.dropped++;this.dropRun++;this.maxDropRun=Math.max(this.maxDropRun,this.dropRun);if(this.previous!==undefined&&p.pts-this.previous>=this.minimumTicks)this.outsideShort++;}this.previous=p.pts;return {...p,retained:keep};}
+}
+export interface FullAnalysis {version:string;fingerprint:Fingerprint;probe:any;durationSeconds:number;sourceFrames:number;firstPts:number;lastPts:number;lastFrameDuration:number;videoEndTicks:number;audio:{frames:number;samples:number;firstTicks:number;endTicks:number;sampleRate:number};timeline:{path:string;size:number;sha256:string};analyzedAt:string}
+export async function fullSourceAnalysis(source:string,directory:string){directory=path.resolve(directory);const st=await fs.stat(source),fingerprint={path:path.resolve(source),size:st.size,mtimeMs:st.mtimeMs};const key=snapshotHash(JSON.stringify({fingerprint,version:FULL_ANALYSIS_VERSION}));const root=path.join(directory,key),manifest=path.join(root,'analysis.json');
+ try{const old:FullAnalysis=JSON.parse(await fs.readFile(manifest,'utf8'));const fp=await fileFingerprint(old.timeline.path);if(old.version===FULL_ANALYSIS_VERSION&&JSON.stringify(old.fingerprint)===JSON.stringify(fingerprint)&&fp.size===old.timeline.size&&fp.sha256===old.timeline.sha256)return {analysis:old,cacheHit:true};}catch{/* no valid cache */}
+ await fs.mkdir(directory,{recursive:true});const lock=await fs.open(root+'.lock','wx');const temp=root+'.'+randomUUID()+'.tmp';await fs.mkdir(temp);try{
+ const probe=JSON.parse((await execute(ffprobe(),['-v','error','-show_streams','-show_format','-of','json',source],{...commandOptions,timeout:30000,maxBuffer:1024*1024})).stdout);
+ const video=probe.streams.find((s:any)=>s.codec_type==='video'),audio=probe.streams.find((s:any)=>s.codec_type==='audio');assert.ok(video&&audio&&['h264','hevc'].includes(video.codec_name));assert.ok(Number(audio.sample_rate)===48000&&audio.channels===2);
+ const tb=(s:any)=>{const [n,d]=s.time_base.split('/').map(Number);return n*90000/d;},vt=tb(video),at=tb(audio);
+ let sourceFrames=0,firstPts=0,lastPts=-Infinity,lastFrameDuration=0,af=0,samples=0,aFirst=0,aEnd=0;
+ const out=createWriteStream(path.join(temp,'pictures.bin'),{flags:'wx'}),hash=createHash('sha256');
+ try{await streamCommand(ffprobe(),['-v','error','-show_frames','-show_entries','frame=media_type,best_effort_timestamp,pts,duration,pkt_duration,nb_samples,interlaced_frame,key_frame','-of','compact=p=0:nk=0',source],{stdout:async line=>{const f=compactFields(line);if(f.media_type==='video'){assert.equal(Number(f.interlaced_frame),0);const pts=Math.round(Number(f.best_effort_timestamp??f.pts)*vt),duration=Math.round(Number(f.duration??f.pkt_duration??0)*vt);assert.ok(Number.isSafeInteger(pts)&&pts>lastPts);if(!sourceFrames)firstPts=pts;lastPts=pts;lastFrameDuration=duration;const b=pictureBytes({pts,duration,index:sourceFrames++,key:f.key_frame==='1',retained:false});hash.update(b);if(!out.write(b))await once(out,'drain');}else if(f.media_type==='audio'){const pts=Math.round(Number(f.best_effort_timestamp??f.pts)*at),n=Number(f.nb_samples);assert.ok(n>0&&Number.isSafeInteger(pts));if(!af)aFirst=pts;else assert.ok(Math.abs(pts-aEnd)<=180,'Discontinuous source audio unsupported');aEnd=pts+n*90000/48000;af++;samples+=n;} }});}finally{await new Promise<void>((r,e)=>{out.once('error',e);out.once('close',r);out.end();});}
+ assert.ok(sourceFrames>1&&af);const after=await fs.stat(source);assert.equal(after.size,st.size);assert.equal(after.mtimeMs,st.mtimeMs);
+ const streamEnd=Math.round((Number(video.start_time??0)+Number(video.duration??probe.format.duration))*90000);const videoEndTicks=Math.max(lastPts+lastFrameDuration,streamEnd);assert.ok(videoEndTicks>=lastPts);
+ // MP4 AAC's last decoded frame includes end padding: keep container end separately.
+ const audioDeclaredEnd=Math.round((Number(audio.start_time??0)+Number(audio.duration??aEnd/90000))*90000);assert.ok(Math.abs(aEnd-audioDeclaredEnd)<=1921,'Audio container vs decoded end differs beyond one AAC frame');
+ const analysis:FullAnalysis={version:FULL_ANALYSIS_VERSION,fingerprint,probe,durationSeconds:Number(probe.format.duration),sourceFrames,firstPts,lastPts,lastFrameDuration,videoEndTicks,audio:{frames:af,samples,firstTicks:aFirst,endTicks:audioDeclaredEnd,sampleRate:48000},timeline:{path:path.join(root,'pictures.bin'),size:sourceFrames*24,sha256:hash.digest('hex')},analyzedAt:new Date().toISOString()};
+ await fs.writeFile(path.join(temp,'analysis.json'),JSON.stringify(analysis));
+ // Preserve a corrupted prior cache for diagnosis; never remove it automatically.
+ try{await fs.rename(root,root+'.stale-'+randomUUID());}catch(e:any){if(e.code!=='ENOENT')throw e;}await fs.rename(temp,root);return {analysis,cacheHit:false};
+ }finally{await lock.close();await fs.unlink(root+'.lock');}}
+export interface FullPlan {version:string;policy:TargetTimingPolicy;minimum:ReturnType<typeof minimumRemovalTicks>;sourceFrames:number;retained:number;dropped:number;duplicated:0;required:boolean;firstPts:number;lastSourcePts:number;lastRetainedPts:number;videoEndTicks:number;finalHoldTicks:number;maxConsecutiveDrops:number;dropsOutsideShortIntervals:number;selectionFingerprint:string;policyFingerprint:string;file:string}
+export async function fullCadencePlan(a:FullAnalysis,policy:TargetTimingPolicy,directory:string){const minimum=minimumRemovalTicks(policy.constraint);assert.ok(minimum.macroblocks<=policy.maxFrameMacroblocks);const policyFingerprint=snapshotHash(JSON.stringify(policy)),key=snapshotHash(a.timeline.sha256+policyFingerprint),file=path.join(directory,key+'.bin'),meta=file+'.json';await fs.mkdir(directory,{recursive:true});
+ try{const p:FullPlan=JSON.parse(await fs.readFile(meta,'utf8')),fp=await fileFingerprint(file);if(p.version==='full-greedy-v1'&&p.policyFingerprint===policyFingerprint&&fp.size===a.sourceFrames*24&&fp.sha256===p.selectionFingerprint)return p;}catch{}
+ const temporary=file+'.'+randomUUID()+'.tmp',out=createWriteStream(temporary,{flags:'wx'}),hash=createHash('sha256'),selection=new IncrementalSelection(minimum.minimumTicks);
+ try{for await(const p of readPictures(a.timeline.path)){const selected=selection.push(p),b=pictureBytes(selected);hash.update(b);if(!out.write(b))await once(out,'drain');}}finally{await new Promise<void>((r,e)=>{out.once('error',e);out.once('close',r);out.end();});}
+ assert.equal(selection.count,a.sourceFrames);
+ const plan:FullPlan={version:'full-greedy-v1',policy,minimum,sourceFrames:a.sourceFrames,retained:selection.retained,dropped:selection.dropped,duplicated:0,required:selection.dropped>0,firstPts:a.firstPts,lastSourcePts:a.lastPts,lastRetainedPts:selection.last!.pts,videoEndTicks:a.videoEndTicks,finalHoldTicks:a.videoEndTicks-selection.last!.pts,maxConsecutiveDrops:selection.maxDropRun,dropsOutsideShortIntervals:selection.outsideShort,selectionFingerprint:hash.digest('hex'),policyFingerprint,file};
+ await fs.rename(temporary,file);await fs.writeFile(meta,JSON.stringify(plan));return plan;}

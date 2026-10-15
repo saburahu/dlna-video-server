@@ -1,0 +1,11 @@
+# Windowsセットアップ
+
+管理画面はサーバーPCのlocalhostからのみ操作できます。別PCからの管理操作は現版では利用できません。
+
+READMEの手順に従い、FFmpegを別途取得してSetup.cmdからbinを指定します。既定dataはユーザーのLocalAppData内、SQLiteはローカルディスク限定です。録画だけは読み取り可能なNAS/別ドライブを登録できます。
+
+サーバー名はテレビ表示名で、UDNとは別です。名前の変更ではUDNは変えません。新規インストールは独立したUDNを作ります。移行時にUDNを維持する場合、旧サーバーを停止して自動起動を解除してください。
+
+設定したLAN IPv4はSSDP広告の到達先選択に使います。HTTP配信はIPv4の全インターフェースで待受しますが、送信元がローカル/LAN以外なら拒否します。管理画面/APIはさらにloopbackとliteral Hostで制限します。外部公開やproxy転送は対応しません。
+
+Setup/Start失敗時はDiagnose.cmdとdata/logs/launcher-*.logを確認してください。実行中dataのセットアップ/バックアップ/importは拒否します。停止を確認せずlockを削除しないでください。

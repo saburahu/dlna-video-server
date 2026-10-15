@@ -1,0 +1,7 @@
+{
+  "version": "v24.22.0",
+  "sha256": "ba93f9a70bd86fce3ebbb39ec758501458453467aa92a34a0a3602d1e3fc2b9c",
+  "source": "https://nodejs.org/dist/v24.22.0/node-v24.22.0-win-x64.zip",
+  "archiveSha256": "f9683a19877e12a9b167305c8db71040d812876359de21f0d2e97c3f321f80c3",
+  "licenseSha256": "ed34dd8e3f0a78dbaf00d0444ce8e285b015b765379c2e17880455f70370f8e9"
+}

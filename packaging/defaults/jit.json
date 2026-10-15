@@ -1,0 +1,205 @@
+{
+  "version": "experimental-jit-v1",
+  "enabled": true,
+  "targetProfile": "legacy-jp-observed",
+  "policy": {
+    "version": "verified-sampleA-normalized-artifact-v1",
+    "observations": [],
+    "executionCapabilitiesStatus": "verified",
+    "capabilities": {
+      "encoders": [
+        {
+          "codec": "h264",
+          "available": true
+        },
+        {
+          "codec": "aac",
+          "available": true
+        },
+        {
+          "codec": "mpeg2video",
+          "available": true
+        }
+      ],
+      "decoders": [
+        {
+          "codec": "h264",
+          "available": true
+        },
+        {
+          "codec": "hevc",
+          "available": true
+        },
+        {
+          "codec": "aac",
+          "available": true
+        },
+        {
+          "codec": "pcm_s16be",
+          "available": true
+        },
+        {
+          "codec": "pcm_s16le",
+          "available": true
+        }
+      ]
+    },
+    "profiles": [
+      {
+        "id": "legacy-jp-observed",
+        "transport": {
+          "evidence": {
+            "status": "inferred",
+            "reference": "PLAYBACK_DECISION.md / bounded experimental output recipes",
+            "scope": "only a diagnostic candidate without matching DMP + Sink observation"
+          },
+          "value": {
+            "container": "mpegts",
+            "framing": "jp-content-packet",
+            "mime": "video/vnd.dlna.mpeg-tts",
+            "profileName": "AVC_TS_JP_AAC_T",
+            "seek": "time"
+          }
+        },
+        "video": {
+          "evidence": {
+            "status": "inferred",
+            "reference": "PLAYBACK_DECISION.md / bounded experimental output recipes",
+            "scope": "only a diagnostic candidate without matching DMP + Sink observation"
+          },
+          "value": {
+            "codec": "h264",
+            "profile": "Main",
+            "level": 40,
+            "codedWidth": 1920,
+            "codedHeight": 1088,
+            "bitDepth": 8,
+            "chroma": "420",
+            "scan": "progressive",
+            "maxDpbFrames": 4,
+            "maxBitrate": 20000000,
+            "maxCpbBits": 25000000,
+            "timing": {
+              "id": "legacy-main40-shadow",
+              "mediaProfile": "AVC_TS_JP_AAC_T",
+              "evidence": "compatibility-experiment",
+              "maxFrameMacroblocks": 8192,
+              "constraint": {
+                "codedWidth": 1920,
+                "codedHeight": 1088,
+                "maxMBPS": 245760,
+                "minimumFrameSeconds": 0.005813953488372093,
+                "timebase": 90000
+              }
+            }
+          }
+        },
+        "audio": {
+          "evidence": {
+            "status": "inferred",
+            "reference": "PLAYBACK_DECISION.md / bounded experimental output recipes",
+            "scope": "only a diagnostic candidate without matching DMP + Sink observation"
+          },
+          "value": {
+            "codec": "aac",
+            "format": "mpeg2-aac-lc",
+            "maxChannels": 2,
+            "sampleRates": [
+              48000
+            ],
+            "allowAbsent": true
+          }
+        },
+        "conformance": {
+          "status": "unknown",
+          "reference": "JP / HD60 profile study",
+          "scope": "complete normative profile not established"
+        }
+      },
+      {
+        "id": "mpeg2-jp-pcr-split-v1",
+        "transport": {
+          "evidence": {
+            "status": "inferred",
+            "reference": "DBR_DEDICATED_PCR_TRIAL.md / DBR_MPEG_TS_CHUNKED_CONTROL.md",
+            "scope": "Fixed and chunked 40s generated MPEG-2 accepted; live JIT/seek unconfirmed"
+          },
+          "value": {
+            "container": "mpegts",
+            "framing": "jp-content-packet",
+            "mime": "video/vnd.dlna.mpeg-tts",
+            "profileName": "MPEG_TS_JP_T",
+            "seek": "time"
+          }
+        },
+        "video": {
+          "evidence": {
+            "status": "inferred",
+            "reference": "DBR_DEDICATED_PCR_TRIAL.md / DBR_MPEG_TS_CHUNKED_CONTROL.md",
+            "scope": "Fixed and chunked 40s generated MPEG-2 accepted; live JIT/seek unconfirmed"
+          },
+          "value": {
+            "codec": "mpeg2video",
+            "profile": "Main",
+            "level": 4,
+            "codedWidth": 1440,
+            "codedHeight": 1088,
+            "scan": "interlaced",
+            "bitDepth": 8,
+            "chroma": "420",
+            "maxDpbFrames": 3,
+            "maxBitrate": 10000000,
+            "maxCpbBits": 9781248,
+            "timing": {
+              "id": "mpeg2-receiver-cfr-v1",
+              "mediaProfile": "MPEG_TS_JP_T",
+              "evidence": "compatibility-experiment",
+              "maxFrameMacroblocks": 6120,
+              "constraint": {
+                "codedWidth": 1440,
+                "codedHeight": 1088,
+                "maxMBPS": 184320,
+                "minimumFrameSeconds": 0.03336666666666667,
+                "timebase": 90000
+              }
+            }
+          }
+        },
+        "audio": {
+          "evidence": {
+            "status": "inferred",
+            "reference": "DBR_DEDICATED_PCR_TRIAL.md / DBR_MPEG_TS_CHUNKED_CONTROL.md",
+            "scope": "Fixed and chunked 40s generated MPEG-2 accepted; live JIT/seek unconfirmed"
+          },
+          "value": {
+            "codec": "aac",
+            "format": "mpeg2-aac-lc",
+            "maxChannels": 2,
+            "sampleRates": [
+              48000
+            ],
+            "allowAbsent": false
+          }
+        },
+        "conformance": {
+          "status": "unknown",
+          "reference": "DBR_DEDICATED_PCR_TRIAL.md / DBR_MPEG_TS_CHUNKED_CONTROL.md",
+          "scope": "Full MPEG_TS_JP_T normative conformance not established"
+        }
+      }
+    ]
+  },
+  "capabilities": [],
+  "items": [],
+  "catalogMetadataResources": true,
+  "catalogGenericView": true,
+  "timingPolicy": "auto",
+  "automaticClients": {
+    "version": "family-candidate-v1",
+    "enabled": true,
+    "priority": "automatic-first",
+    "legacyInputs": true,
+    "wmaInputs": "source-clock-v1"
+  },
+  "maxConcurrentSessions": 2
+}

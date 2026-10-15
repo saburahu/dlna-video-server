@@ -1,0 +1,7 @@
+PT3 recording server
+Copyright (c) 2026 saburahu
+Project code is licensed under the MIT License; see LICENSE.
+This application is not affiliated with or endorsed by Toshiba/TVS REGZA, VideoLAN, Node.js or FFmpeg.
+Third-party software retains its own license; see third-party/ and docs/LICENSE_POLICY.md.
+Node.js redistributions include the complete matching Node LICENSE with third-party notices.
+FFmpeg and ffprobe are separate user-managed executables and are not included in the Windows distribution.

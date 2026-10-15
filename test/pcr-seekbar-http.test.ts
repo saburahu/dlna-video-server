@@ -1,0 +1,34 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {promises as fs} from 'node:fs';
+import path from 'node:path';
+import os from 'node:os';
+import {spawn,type ChildProcess} from 'node:child_process';
+import {once} from 'node:events';
+import {syntheticTs} from './ts-fixture.js';
+import {packetTime,timeSeekSlice,formatNpt} from '../src/time-seek.js';
+import {contentPacketLayout} from '../src/content-packet.js';
+
+test('cold TS normal GET/HEAD supplies full TimeSeek duration; cached cold URL seeks without another Browse', {timeout:30000},async t=>{
+ const dir=await fs.mkdtemp(path.join(os.tmpdir(),'pt3-seekbar-')),data=path.join(dir,'data'),media=path.join(dir,'media');await fs.mkdir(data);await fs.mkdir(media);
+ const source=syntheticTs(15013,5000),file=path.join(media,'unknown-duration.ts');await fs.writeFile(file,source);
+ await fs.writeFile(path.join(data,'settings.json'),JSON.stringify({port:0,interfaceAddress:'127.0.0.1',folders:[media],profile:'regza-zp2-buffered'}));
+ let child:ChildProcess|undefined,base='';const stop=async()=>{if(child?.exitCode===null){const end=once(child,'exit');child.kill();await end;}child=undefined;};
+ t.after(async()=>{await stop();await fs.rm(dir,{recursive:true,force:true});});
+ const start=async()=>{child=spawn(process.execPath,['--import','tsx','src/server.ts'],{env:{...process.env,PT3_DATA_DIR:data,PT3_LOG_DIR:path.join(dir,'logs'),PT3_DISABLE_SSDP:'1',PT3_PCR_BACKGROUND_DISABLED:'1'},stdio:['ignore','pipe','pipe']});base=await new Promise<string>((resolve,reject)=>{let out='';const timer=setTimeout(()=>reject(Error(out)),15000);const read=(b:Buffer)=>{out+=b;const m=/localhost:(\d+)/.exec(out);if(m&&out.includes('スキャン完了')){clearTimeout(timer);resolve('http://127.0.0.1:'+m[1]);}};child!.stdout!.on('data',read);child!.stderr!.on('data',read);child!.once('error',reject);});};
+ await start();const p=(await fetch(base+'/api/programs').then(r=>r.json()))[0];assert.ok(!p.duration);
+ const browse=async()=>{const r=await fetch(base+'/upnp/control/content-directory',{method:'POST',headers:{soapaction:'"urn:schemas-upnp-org:service:ContentDirectory:1#Browse"'},body:`<ObjectID>item:${p.id}</ObjectID><BrowseFlag>BrowseMetadata</BrowseFlag><StartingIndex>0</StartingIndex><RequestedCount>1</RequestedCount>`});assert.equal(r.status,200);return (await r.text()).replaceAll('&lt;','<').replaceAll('&gt;','>').replaceAll('&quot;','"').replaceAll('&amp;','&');};
+ const cold=await browse();assert.ok(!/<res\b[^>]*duration=/.test(cold));assert.ok(!/<res\b[^>]*size=/.test(cold));
+ assert.equal((await fetch(base+'/api/status').then(r=>r.json())).pcrCache.builds,0);
+ const oldPath=new URL(/<res\b[^>]*>([^<]+)<\/res>/.exec(cold)![1].replaceAll('&amp;','&'));const route=oldPath.pathname+oldPath.search;
+ const get=await fetch(base+route);assert.equal(get.status,200);const body=Buffer.from(await get.arrayBuffer());
+ const names=await fs.readdir(path.join(data,'pcr-cache')),record=JSON.parse(await fs.readFile(path.join(data,'pcr-cache',names[0]),'utf8')),index=JSON.parse(record.data),duration=packetTime(index,index.packetCount),total=body.length;
+ const full=`npt=0.000-${formatNpt(duration)}/${formatNpt(duration)} bytes=0-${total-1}/${total}`;
+ assert.equal(get.headers.get('timeseekrange.dlna.org'),full);assert.equal(get.headers.get('availableSeekRange.dlna.org'),`1 npt=0.000-${formatNpt(duration)}`);assert.equal(Number(get.headers.get('content-length')),total);
+ const raw:Buffer[]=[];for(let o=0;o<body.length;){const n=body.readUInt32BE(o+10);for(let j=o+14;j<o+14+n;j+=192)raw.push(body.subarray(j+4,j+192));o+=14+n;}assert.deepEqual(Buffer.concat(raw),source,'transport contains original TS packets without modification');
+ const head=await fetch(base+route,{method:'HEAD'});assert.equal(head.headers.get('timeseekrange.dlna.org'),full);assert.equal((await head.arrayBuffer()).byteLength,0);
+ const seek=await fetch(base+route,{headers:{'TimeSeekRange.dlna.org':'npt=1-1.5'}}),layout=contentPacketLayout(source.length/188*192,index.averageBitrate*192/188),slice=timeSeekSlice(index,layout.blockBytes,'npt=1-1.5');assert.equal(seek.status,200);assert.equal((await seek.arrayBuffer()).byteLength,slice.wireBytes);assert.equal(seek.headers.get('timeseekrange.dlna.org'),`npt=${formatNpt(slice.actualStart)}-${formatNpt(slice.actualEnd)}/${formatNpt(duration)} bytes=${slice.startByte}-${slice.startByte+slice.wireBytes-1}/${total}`);
+ const durationText='00:00:'+formatNpt(duration).padStart(6,'0');assert.equal(durationText,'00:00:03.003');
+ const warm=await browse();assert.ok(warm.includes(`duration="${durationText}"`));assert.ok(warm.includes(`size="${total}"`));
+ await stop();await start();assert.ok((await browse()).includes(`duration="${durationText}"`));const restarted=await fetch(base+route,{method:'HEAD'});assert.equal(restarted.headers.get('timeseekrange.dlna.org'),full);assert.equal((await fetch(base+'/api/status').then(r=>r.json())).pcrCache.builds,0);
+});
