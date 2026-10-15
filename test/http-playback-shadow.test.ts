@@ -51,7 +51,8 @@ test('normal HTTP shadow cache failure preserves full TS/TTS, HEAD, TimeSeek, Ra
     const file = path.join(dir, filename); await fs.writeFile(file, 'no valid video; Browse must not decode'); const st = await fs.stat(file);
     entries.push({ objectId: experimentalObjectId(file), filename, fingerprint: { path: file, size: st.size, mtimeMs: st.mtimeMs }, sourceState: 'unanalysed', decisions: [] });
   }
-  await fs.mkdir(path.join(dir, 'experimental'));
+  // Startup now initializes the catalog even with periodic discovery disabled.
+  await fs.mkdir(path.join(dir, 'experimental'), {recursive:true});
   await fs.writeFile(path.join(dir, 'experimental', 'catalog.json'), JSON.stringify({ version: CATALOG_VERSION, enabled: true, entries }));
   // Broken offline analysis, not a valid plan. The actual path must still succeed.
   await fs.mkdir(path.dirname(sourceCacheFile(shadow, file)), { recursive: true }); await fs.writeFile(sourceCacheFile(shadow, file), '{broken');
@@ -63,7 +64,9 @@ test('normal HTTP shadow cache failure preserves full TS/TTS, HEAD, TimeSeek, Ra
   assert.match(experimental,/<TotalMatches>0<\/TotalMatches>/);
   assert.ok(!(await browse(enabled, '0')).includes('Experimental Media'));
   const refused = await fetch(enabled + '/experimental/media/' + entries[0].objectId.split('/').at(-1));
-  assert.equal(refused.status, 409); assert.equal((await refused.arrayBuffer()).byteLength, 0);
+  // Entries outside registered roots are absent from the startup catalog, even
+  // when an old offline manifest names them. They must remain inaccessible.
+  assert.equal(refused.status, 404); assert.equal((await refused.arrayBuffer()).byteLength, 0);
   await fs.writeFile(path.join(dir, 'experimental', 'catalog.json'), '{broken');
   assert.deepEqual(await Promise.all(['rec', 'all', 'item:abcdef'].map(id => browse(enabled, id, id.startsWith('item:')))), normalBefore);
   for (const condition of conditions) after.push(await receive(enabled, condition));

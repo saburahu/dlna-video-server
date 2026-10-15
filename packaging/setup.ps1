@@ -42,7 +42,7 @@ if (-not $settingsExists) {
 }
 $name = Read-Host 'Server name shown on TV (blank = keep existing / PT3 + PC name)'
 if ($name) { $cli += @('--name', $name) }
-$seconds = Read-Host 'Library refresh interval in seconds (blank = keep existing / 60)'
+$seconds = Read-Host 'Library refresh interval in seconds (blank = keep existing / 1800)'
 if ($seconds) { $cli += @('--scan-seconds', $seconds) }
 & $node @cli
 if ($LASTEXITCODE -ne 0) { throw 'Setup failed' }

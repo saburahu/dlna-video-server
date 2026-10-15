@@ -55,7 +55,7 @@ test('5000 file catalog: incremental atomic index, stable IDs, paged Browse with
  const newFile=path.join(media,'追加.mp4');await fs.writeFile(newFile,'added');await fs.appendFile(files[0],'changed');await fs.unlink(files[1]);
  const changed=await db.scan([media],cache);assert.equal(changed.added,1);assert.equal(changed.changed,1);assert.equal(changed.missing,1);assert.equal(changed.active,5000);
  assert.equal(db.get(id)?.objectId,id);assert.equal(db.get(id)?.metadata,undefined);assert.notEqual(db.get(id)?.analysisKey,before.analysisKey);assert.equal(db.get(experimentalObjectId(files[1]))?.availability,'missing');
- const failed=await db.scan([path.join(root,'absent')],cache);assert.equal(failed.failedPaths.length,1);assert.equal(db.count(),5000); // configured root list changed: folder UpdateID legitimately changes
+ const failed=await db.scan([media],cache,{...fs,opendir:async()=>{throw Object.assign(Error('temporarily offline'),{code:'EACCES'});}});assert.equal(failed.failedPaths.length,1);assert.equal(db.count(),5000);
  db.close();db=await openMediaIndex(cache);assert.equal(db.get(id)?.objectId,id);assert.equal(db.count(),5000);
  const current=db.get(id)!;await fs.utimes(files[0],new Date(),new Date(current.mtimeMs+2000));
  const mtime=await db.scan([media],cache);assert.equal(mtime.changed,1);assert.equal(db.get(id)?.objectId,id);

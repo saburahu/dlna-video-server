@@ -79,6 +79,7 @@ export class MediaIndex {
  photoCount(){return Number(this.db.prepare("SELECT count(*) n FROM media WHERE availability='available' AND container='webp'").get()!.n);}
  photoPage(start:number,count:number){if(!Number.isSafeInteger(start)||!Number.isSafeInteger(count)||start<0||count<0)throw Error('Invalid photo page');return {entries:this.db.prepare("SELECT * FROM media WHERE availability='available' AND container='webp' ORDER BY path_key,id LIMIT ? OFFSET ?").all(Math.min(count||200,200),start).map(row),total:this.photoCount(),updateId:this.updateId};}
  count(){return Number(this.db.prepare("SELECT count(*) AS n FROM media WHERE availability='available' AND container!='webp'").get()!.n);}
+ probeFailures(){return Number(this.db.prepare("SELECT count(*) n FROM media WHERE availability='available' AND probe_status='failed'").get()!.n);}
  probeQueue(now=Date.now()){
   return Number(this.db.prepare("SELECT count(*) n FROM media WHERE availability='available' AND (probe_status='pending' OR (probe_status='failed' AND probe_attempts<3 AND probe_retry_at<=?))").get(now)!.n);
  }
@@ -109,14 +110,13 @@ export class MediaIndex {
   }catch(error){this.db.exec('ROLLBACK');throw error;}
  }
  /** Streaming discovery/stat only. A transaction publishes the complete change-set, never a partial deletion scan. */
- async scan(folders:string[],directory:string,io:Pick<typeof fs,'realpath'|'opendir'|'stat'>=fs,onRecording?:(entry:{file:string;stat:import('node:fs').Stats})=>void){
+ async scan(folders:string[],directory:string,io:Pick<typeof fs,'realpath'|'opendir'|'stat'>=fs,onRecording?:(entry:{file:string;stat:import('node:fs').Stats})=>void,controls:Pick<DiscoveryState,'signal'|'beforeDirectory'>={}){
   new DiagnosticLog(directory).assertSeparate(folders);
-  if(!folders.length)throw Error('At least one library root is required');
   const roots=[...new Set(folders.map(f=>canonicalPathKey(f)))];
   const began=performance.now(),rssBefore=process.memoryUsage().rss,now=new Date().toISOString();
   let rssPeak=rssBefore,enumerated=0,linksSkipped=0,statCalls=0;
-  const discovery:DiscoveryState={failedPaths:[],linksSkipped:0};
-  this.db.exec(`BEGIN IMMEDIATE; DROP TABLE IF EXISTS temp.seen; CREATE TEMP TABLE seen(
+  const discovery:DiscoveryState={failedPaths:[],linksSkipped:0,...controls};let publishing=false;
+  this.db.exec(`DROP TABLE IF EXISTS temp.seen; CREATE TEMP TABLE seen(
    id TEXT PRIMARY KEY,path_key TEXT UNIQUE,source_path TEXT,root TEXT,filename TEXT,container TEXT,size INTEGER,mtime REAL,analysis_key TEXT);`);
   const insert=this.db.prepare('INSERT OR IGNORE INTO temp.seen VALUES(?,?,?,?,?,?,?,?,?)');
   try {
@@ -136,12 +136,15 @@ export class MediaIndex {
    // Suppress deletion only for roots with incomplete discovery; additions and
    // changes remain publishable. A subsequent complete scan resolves deletions.
    const completeRoots=roots.filter(root=>!discovery.failedPaths.some(p=>withinSourcePath(p,root))&&!discovery.failedRoots?.some(p=>canonicalPathKey(p)===root));
+   controls.signal?.throwIfAborted();const publishStarted=performance.now();this.db.exec('BEGIN IMMEDIATE');publishing=true;
    const foldersChanged=hierarchy.commit([...(discovery.failedRoots??[]),...discovery.failedPaths]);
    const n=(sql:string,...args:string[])=>Number(this.db.prepare(sql).get(...args)!.n);
    const added=n('SELECT count(*) n FROM temp.seen s LEFT JOIN media m ON s.id=m.id WHERE m.id IS NULL');
    const changed=n("SELECT count(*) n FROM temp.seen s JOIN media m ON s.id=m.id WHERE s.analysis_key!=m.analysis_key OR m.availability!='available' OR m.source_path!=s.source_path OR m.root!=s.root");
    const marks=completeRoots.map(()=>'?').join(',');
-   const missing=completeRoots.length?n(`SELECT count(*) n FROM media m WHERE m.root IN (${marks}) AND m.availability='available' AND NOT EXISTS(SELECT 1 FROM temp.seen s WHERE s.id=m.id)`,...completeRoots):0;
+   const rootMarks=roots.map(()=>'?').join(',');
+   const removedRoots=n(`SELECT count(*) n FROM media WHERE availability='available' AND root NOT IN (${rootMarks})`,...roots);
+   const missing=removedRoots+(completeRoots.length?n(`SELECT count(*) n FROM media m WHERE m.root IN (${marks}) AND m.availability='available' AND NOT EXISTS(SELECT 1 FROM temp.seen s WHERE s.id=m.id)`,...completeRoots):0);
    this.db.prepare(`INSERT INTO media(id,path_key,source_path,root,filename,container,size,mtime,analysis_key,availability,indexed_at,updated_at)
     SELECT id,path_key,source_path,root,filename,container,size,mtime,analysis_key,'available',?,? FROM temp.seen WHERE true
     ON CONFLICT(id) DO UPDATE SET source_path=excluded.source_path,root=excluded.root,filename=excluded.filename,size=excluded.size,mtime=excluded.mtime,
@@ -153,10 +156,11 @@ export class MediaIndex {
     probe_retry_at=CASE WHEN media.analysis_key=excluded.analysis_key THEN media.probe_retry_at ELSE 0 END
     WHERE media.analysis_key!=excluded.analysis_key OR media.availability!='available' OR media.source_path!=excluded.source_path OR media.root!=excluded.root`).run(now,now);
    if(completeRoots.length)this.db.prepare(`UPDATE media SET availability='missing',updated_at=? WHERE root IN (${marks}) AND availability='available' AND NOT EXISTS(SELECT 1 FROM temp.seen s WHERE s.id=media.id)`).run(now,...completeRoots);
-   if(added+changed+missing||foldersChanged)this.bump();this.enable(true);this.db.exec('COMMIT');
+   this.db.prepare(`UPDATE media SET availability='missing',updated_at=? WHERE availability='available' AND root NOT IN (${rootMarks})`).run(now,...roots);
+   if(added+changed+missing||foldersChanged)this.bump();this.enable(true);this.db.exec('COMMIT');publishing=false;
    return {enumerated,active:this.count(),added,changed,missing,unchanged:enumerated-added-changed,linksSkipped,statCalls,failedPaths:discovery.failedPaths,foldersChanged,
-    elapsedMs:performance.now()-began,rssBefore,rssPeak:Math.max(rssPeak,process.memoryUsage().rss),updateId:this.updateId};
-  }catch(e){this.db.exec('ROLLBACK');throw e;}
+    elapsedMs:performance.now()-began,publicationMs:performance.now()-publishStarted,rssBefore,rssPeak:Math.max(rssPeak,process.memoryUsage().rss),updateId:this.updateId};
+  }catch(e){if(publishing)this.db.exec('ROLLBACK');throw e;}
  }
 }
 export function indexedExperimentalEntry(r:CatalogRow):ExperimentalEntry {

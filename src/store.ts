@@ -118,13 +118,13 @@ async function scanProgramInventory(log: (category: string, message: string, det
     next.push(base);
   }
   const found=new Set(next.map(p=>sourcePathKey(p.filePath)));
-  for(const old of programs)if(!found.has(sourcePathKey(old.filePath))&&(inventory&&discovery.failedPaths.length||discovery.failedPaths.some(p=>withinSourcePath(old.filePath,p))))next.push(old);
+  for(const old of programs)if(!found.has(sourcePathKey(old.filePath))&&discovery.failedPaths.some(p=>withinSourcePath(old.filePath,p)))next.push(old);
   for(const failed of discovery.failedPaths)log('FILE_WATCH',`探索エラーのため既存項目を保持: ${failed}`);
   if(JSON.stringify(settings.folders)!==JSON.stringify(roots)){log('FILE_WATCH','探索中に保存先が変更されたため結果を破棄');return programs;}
   inventoryObserver?.({roots,entries:observed,failedPaths:discovery.failedPaths});
   // Background scans reuse catalog stat records. No-change cycles do not
   // re-open every cached EIT document or advance the directory UpdateID.
-  if(inventory&&JSON.stringify(next)===before)return programs;
+  if(inventory&&JSON.stringify(next)===before){log("FILE_WATCH", `スキャン完了: ${programs.length}件（変更なし）`);return programs;}
   programs = next;
   await refreshMetadata(false);
   if(JSON.stringify(programs)===before)systemUpdateId=previousUpdateId;

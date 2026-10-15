@@ -1,0 +1,50 @@
+import test from 'node:test';import assert from 'node:assert/strict';import {promises as fs,writeFileSync} from 'node:fs';import path from 'node:path';import os from 'node:os';
+import {createCatalogBackground,DEFAULT_SCAN_INTERVAL_MS,type RecordingScanState} from '../src/catalog-background.js';import {openMediaIndex} from '../src/media-catalog-index.js';import {withinSourcePath} from '../src/library-discovery.js';import {folderIdentity} from '../src/folder-index.js';
+async function fixture(t:any){const root=await fs.mkdtemp(path.join(os.tmpdir(),'unified-media-scan-')),media=path.join(root,'media'),cache=path.join(root,'cache');await fs.mkdir(media);await fs.mkdir(cache);const cleanup:(()=>unknown)[]=[];t.after(async()=>{for(const fn of cleanup.reverse())await fn();assert.equal(path.dirname(root),os.tmpdir());await fs.rm(root,{recursive:true,force:true,maxRetries:5,retryDelay:50});});return {root,media,cache,cleanup};}
+test('manual scan updates all existing extensions and deep folders, without probing or PCR work; disabled periodic policy and explicit interval survive',async t=>{
+ const f=await fixture(t),deep=path.join(f.media,'日本語','deep');await fs.mkdir(deep,{recursive:true});const names=['a.ts','b.m2ts','c.mts','d.mp4','e.mkv','f.wmv','g.asf','h.webp'];for(const name of names)await fs.writeFile(path.join(f.media,name),'fixture');await fs.writeFile(path.join(deep,'i.avi'),'fixture');await fs.writeFile(path.join(f.cache,'automatic.json'),JSON.stringify({enabled:false,scanIntervalMs:3600000,probeGapMs:321}));
+ let rows:RecordingScanState[]=[],probes=0;const worker=createCatalogBackground(f.cache,()=>[f.media],()=>{},{probe:async()=>{probes++;throw Error('Manual scan must not probe');},recordingState:()=>rows,recordings:async inv=>{rows=[...inv.entries.map(e=>({file:e.file,size:e.stat.size,mtimeMs:e.stat.mtimeMs})),...rows.filter(r=>inv.failedPaths.some(p=>withinSourcePath(r.file,p))&&!inv.entries.some(e=>e.file===r.file))];}});const db=await openMediaIndex(f.cache);f.cleanup.push(async()=>{await worker.stop();db.close();});
+ await worker.scanNow();assert.equal(worker.status().tsCount,3);assert.equal(db.count(),5);assert.equal(db.photoCount(),1);assert.equal(probes,0);assert.equal(worker.status().lastScan?.added,9);assert.equal(worker.status().scanIntervalMs,3600000);assert.equal(worker.status().metadataState,'paused');assert.ok(worker.status().lastScan!.publicationMs>=0);const old=db.find(path.join(f.media,'d.mp4'))!.objectId,update=db.updateId;
+ await worker.scanNow();assert.equal(worker.status().lastScan?.added,0);assert.equal(db.updateId,update);assert.equal(probes,0);
+ await fs.appendFile(path.join(f.media,'d.mp4'),'changed');await fs.rm(path.join(f.media,'日本語'),{recursive:true});const added=path.join(f.media,'new','more');await fs.mkdir(added,{recursive:true});await fs.writeFile(path.join(added,'new.avi'),'new');await worker.scanNow();assert.equal(worker.status().lastScan?.added,1);assert.equal(worker.status().lastScan?.updated,1);assert.equal(worker.status().lastScan?.deleted,1);assert.equal(db.find(path.join(f.media,'d.mp4'))!.objectId,old);assert.equal(db.folders.get(folderIdentity(f.media,path.relative(f.media,deep))),undefined);assert.ok(db.folders.get(folderIdentity(f.media,'new')));assert.ok(db.updateId>update);
+ await worker.configureInterval(1800);const policy=JSON.parse(await fs.readFile(path.join(f.cache,'automatic.json'),'utf8'));assert.equal(policy.enabled,false);assert.equal(policy.probeGapMs,321);assert.equal(policy.scanIntervalMs,DEFAULT_SCAN_INTERVAL_MS);await assert.rejects(worker.configureInterval(0));assert.equal(await fs.stat(path.join(f.root,'pcr-cache')).catch(()=>undefined),undefined);
+});
+test('manual requests during publication are serialized and coalesce into a later fresh full scan; changed roots are not lost',async t=>{
+ const f=await fixture(t),second=path.join(f.root,'second');await fs.mkdir(second);await fs.writeFile(path.join(f.media,'old.mp4'),'a');await fs.writeFile(path.join(second,'other.wmv'),'b');let roots=[f.media],release!:()=>void,entered!:()=>void,calls=0,active=0,max=0;const gate=new Promise<void>(r=>release=r),ready=new Promise<void>(r=>entered=r);await fs.writeFile(path.join(f.cache,'automatic.json'),'{"enabled":false}');const worker=createCatalogBackground(f.cache,()=>roots,()=>{},{recordings:async()=>{calls++;active++;max=Math.max(max,active);if(calls===1){entered();await gate;}active--;}});f.cleanup.push(()=>worker.stop());
+ const first=worker.scanNow();await ready;roots=[f.media,second];await fs.writeFile(path.join(f.media,'late.mkv'),'c');const a=worker.scanNow(),b=worker.scanNow();release();await Promise.all([first,a,b]);assert.equal(max,1);assert.equal(worker.status().otherVideoCount,3);assert.equal(worker.status().scanState,'complete');assert.ok(calls>=2);assert.equal(worker.status().lastError,null);
+});
+test('scan staging does not lock a second catalog reader/writer, and cancellation cannot publish partial rows',async t=>{
+ const f=await fixture(t);await fs.writeFile(path.join(f.media,'old.mp4'),'a');const db=await openMediaIndex(f.cache);f.cleanup.push(()=>db.close());await db.scan([f.media],f.cache);const update=db.updateId;const deep=path.join(f.media,'new');await fs.mkdir(deep);await fs.writeFile(path.join(deep,'new.mkv'),'b');let release!:()=>void,entered!:()=>void;const gate=new Promise<void>(r=>release=r),ready=new Promise<void>(r=>entered=r),abort=new AbortController();let directories=0;
+ const scan=db.scan([f.media],f.cache,undefined,undefined,{signal:abort.signal,beforeDirectory:async()=>{if(++directories===2){entered();await gate;}}});await ready;const at=performance.now(),reader=await openMediaIndex(f.cache);assert.ok(performance.now()-at<1000);assert.equal(reader.count(),1);reader.close();abort.abort();release();await assert.rejects(scan);assert.equal(db.count(),1);assert.equal(db.updateId,update);await db.scan([f.media],f.cache);assert.equal(db.count(),2);
+});
+test('unavailable roots preserve media and folders; healthy deletions and configured root removal still update',async t=>{
+ const f=await fixture(t),other=path.join(f.root,'other'),offline=path.join(f.root,'offline');await fs.mkdir(other);const a=path.join(f.media,'a.mp4'),b=path.join(other,'b.mkv');await fs.writeFile(a,'a');await fs.writeFile(b,'b');const db=await openMediaIndex(f.cache);f.cleanup.push(()=>db.close());await db.scan([f.media,other],f.cache);const id=db.find(b)!.objectId;await fs.rename(other,offline);await fs.unlink(a);const scan=await db.scan([f.media,other],f.cache);assert.equal(scan.failedPaths.length,1);assert.equal(db.count(),1);assert.equal(db.get(id)?.availability,'available');assert.ok(db.folders.get(folderIdentity(other,'')));await db.scan([f.media],f.cache);assert.equal(db.count(),0);assert.equal(db.folders.get(folderIdentity(other,'')),undefined);assert.ok(await fs.stat(path.join(offline,'b.mkv')));
+});
+
+test('manual requests arriving at job finalization always await their own fresh scan',async t=>{
+ const f=await fixture(t);await fs.writeFile(path.join(f.cache,'automatic.json'),'{"enabled":false}');
+ for(let depth=0;depth<12;depth++){
+  let late:Promise<void>|undefined,scheduled=false;const worker=createCatalogBackground(f.cache,()=>[f.media],event=>{
+   if(event!=='CATALOG_SCAN'||scheduled)return;scheduled=true;
+   const enqueue=(n:number)=>queueMicrotask(()=>{if(n)enqueue(n-1);else{writeFileSync(path.join(f.media,`late-${depth}.mp4`),'fixture');late=worker.scanNow();}});enqueue(depth);
+  });
+  try{await worker.scanNow();while(!late)await new Promise(r=>setImmediate(r));await late;assert.equal(worker.status().otherVideoCount,depth+1);assert.ok(worker.status().scans>=2);}
+  finally{await worker.stop();}
+ }
+});
+
+test('automatic scans defer during playback; manual scan still completes without probing; an empty root list unpublishes safely',async t=>{
+ const f=await fixture(t);await fs.writeFile(path.join(f.media,'a.mp4'),'fixture');await fs.writeFile(path.join(f.cache,'automatic.json'),'{"enabled":true}');let roots=[f.media],busy=true,probes=0;
+ const worker=createCatalogBackground(f.cache,()=>roots,()=>{},{busy:()=>busy,probe:async()=>{probes++;return {probe:{format:{duration:'1'},streams:[]},cacheHit:false};}});f.cleanup.push(()=>worker.stop());
+ await worker.runOnce();assert.equal(worker.status().scans,0);assert.equal(worker.status().deferredReason,'playback-active');
+ await worker.scanNow();assert.equal(worker.status().otherVideoCount,1);assert.equal(probes,0);roots=[];await worker.scanNow();assert.equal(worker.status().otherVideoCount,0);assert.equal(worker.status().lastScan?.deleted,1);assert.ok(await fs.stat(path.join(f.media,'a.mp4')));
+ busy=false;roots=[f.media];await worker.scanNow();assert.equal(worker.status().otherVideoCount,1);assert.equal(probes,0);
+});
+
+test('metadata status distinguishes discovery completion, active decoding, persisted errors and changed-source retry',async t=>{
+ const f=await fixture(t),file=path.join(f.media,'broken.wmv');await fs.writeFile(file,'fixture');await fs.writeFile(path.join(f.cache,'automatic.json'),'{"enabled":true}');
+ let entered!:()=>void,release!:()=>void;const ready=new Promise<void>(r=>entered=r),gate=new Promise<void>(r=>release=r);
+ const worker=createCatalogBackground(f.cache,()=>[f.media],()=>{},{probe:async()=>{entered();await gate;throw Error('fixture decoder failure');}});f.cleanup.push(()=>worker.stop());
+ const running=worker.runOnce();await ready;assert.equal(worker.status().scanState,'complete');assert.equal(worker.status().metadataState,'analyzing');release();await running;assert.equal(worker.status().metadataState,'failed');assert.equal(worker.status().metadataFailed,1);await worker.stop();
+ const restarted=createCatalogBackground(f.cache,()=>[f.media],()=>{});f.cleanup.push(()=>restarted.stop());await restarted.scanNow();assert.equal(restarted.status().metadataFailed,1);assert.equal(restarted.status().metadataState,'failed');await fs.appendFile(file,'changed');await restarted.scanNow();assert.equal(restarted.status().metadataFailed,0);assert.equal(restarted.status().metadataState,'pending');
+});

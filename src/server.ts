@@ -45,8 +45,9 @@ const trials = new Map<string, Trial>();
 const requests = new WeakMap<IncomingMessage, Record<string, unknown>>();
 const sockets = new WeakMap<object, string>();
 let familyShadow=createFamilyShadow();
+let activeMediaReads=0;
 const playbackShadow = createShadowStore(shadowDirectory(), () => settings.folders);
-const experimentalCatalog = createExperimentalCatalog(experimentalCatalogDirectory(), (message, detail) => log('EXPERIMENTAL_CATALOG', message, detail), () => settings.folders,{},inventory=>scanFolders(log,inventory));
+const experimentalCatalog = createExperimentalCatalog(experimentalCatalogDirectory(), (message, detail) => log('EXPERIMENTAL_CATALOG', message, detail), () => settings.folders,{},inventory=>scanFolders(log,inventory),{busy:()=>activeMediaReads>0,recordingState:()=>programs.map(p=>({file:p.filePath,size:p.size,mtimeMs:Date.parse(p.modified)}))});
 const pcrBackground=createPcrBackground(path.resolve(process.env.PT3_DATA_DIR||'data'),()=>settings.folders,(event,detail)=>log('PCR_BACKGROUND',event,detail),{busy:()=>experimentalCatalog.jitStatus().some(s=>s.active||s.executors)});
 observeRecordingInventory(snapshot=>pcrBackground.accept(snapshot));
 const clientDiagnostics=createClientContractDiagnostics(path.resolve(process.env.PT3_DATA_DIR||'data','client-diagnostics'),(message,detail)=>log('CLIENT_CONTRACT',message,detail));
@@ -430,6 +431,9 @@ async function handler(req: IncomingMessage, res: ServerResponse) {
   if (!isPrivateAddress(ip)) return sendJson(res, 403, { error: "家庭内LANからのみ利用できます" });
   const deviceRoute=/^\/(?:upnp\/|media\/|library\/|experimental\/|client-diagnostic\/|avc-http-control\/|avc-picture-trial\/|mpeg-ts-trial\/)/.test(url.pathname);
   if(!deviceRoute){const denied=managementAccess(req,boundPort||settings.port);if(denied)return sendJson(res,403,{error:denied});res.setHeader('X-Frame-Options','DENY');res.setHeader('X-Content-Type-Options','nosniff');res.setHeader('Content-Security-Policy',"frame-ancestors 'none'; base-uri 'none'");}
+  if(req.method==='GET'&&/^\/(?:media\/|library\/(?:jit|direct)\/|experimental\/|client-diagnostic\/media\/|avc-http-control\/media\/|avc-picture-trial\/media\/|mpeg-ts-trial\/media\/)/.test(url.pathname)){
+    activeMediaReads++;let released=false;const release=()=>{if(!released){released=true;activeMediaReads--;}};res.once('close',release);res.once('finish',release);
+  }
   if (!sockets.has(req.socket)) sockets.set(req.socket, randomUUID());
   requests.set(req, { trialId: trial.id, savedProfile: settings.profile, connectionId: randomUUID(),
     socketId: sockets.get(req.socket), method: req.method, url: url.pathname, requestStartedMs: started });
@@ -452,6 +456,11 @@ async function handler(req: IncomingMessage, res: ServerResponse) {
       if (url.pathname === "/api/experimental/jit/status") return sendJson(res,200,experimentalCatalog.jitStatus());
       if (url.pathname === "/api/experimental/jit/clients") return sendJson(res,200,experimentalCatalog.automaticStatus());
       if (url.pathname === '/api/experimental/catalog/status') return sendJson(res,200,experimentalCatalog.backgroundStatus());
+      if(url.pathname==='/api/media-scan'){
+        if(req.method==='GET'){const s=experimentalCatalog.backgroundStatus();return sendJson(res,200,{...s,tsCount:programs.length,mediaTotal:programs.length+s.otherVideoCount+s.imageCount});}
+        if(req.method==='POST'){try{const input=JSON.parse(await body(req));await experimentalCatalog.configureScanInterval(input.scanIntervalSeconds);return sendJson(res,200,experimentalCatalog.backgroundStatus());}catch(e){return sendJson(res,400,{error:String(e)});}}
+        return sendJson(res,405,{error:'GET/POST only'});
+      }
       if(url.pathname==='/api/pcr-cache'&&req.method==='GET')return sendJson(res,200,await pcrBackground.inspect());
       if(url.pathname==='/api/pcr-cache'&&req.method==='POST'){try{return sendJson(res,200,await pcrBackground.configure(JSON.parse(await body(req))));}catch(e){return sendJson(res,400,{error:String(e)});}}
       if (url.pathname === "/api/status") return sendJson(res, 200, { running: true, baseUrl: baseUrl(), settings, trial,
@@ -503,7 +512,7 @@ async function handler(req: IncomingMessage, res: ServerResponse) {
         return sendJson(res, 200, result);
       }
       if (url.pathname === "/api/logs") return sendJson(res, 200, logs);
-      if (url.pathname === "/api/scan" && req.method === "POST") return sendJson(res, 200, await scanFolders(log));
+      if (url.pathname === "/api/scan" && req.method === "POST") {await experimentalCatalog.rescan();return sendJson(res,200,programs);}
       if (url.pathname === "/api/settings" && req.method === "POST") {
         const patch = JSON.parse(await body(req));
         const allowed=new Set(['friendlyName','port','interfaceAddress','folders','profile','contentPacketProgramIds','timeSeekProgramIds','pcrPacingProgramIds']);
@@ -552,7 +561,9 @@ async function handler(req: IncomingMessage, res: ServerResponse) {
         if (patch.folders !== undefined && (!Array.isArray(patch.folders) || !patch.folders.every((f: unknown) => typeof f === "string"))) return sendJson(res, 400, { error: "録画フォルダーの形式が不正です" });
         try { diskLog.assertSeparate(patch.folders ?? settings.folders); }
         catch (e) { return sendJson(res, 400, { error: String(e) }); }
+        const rootsChanged=patch.folders!==undefined&&JSON.stringify(patch.folders)!==JSON.stringify(settings.folders);
         await updateSettings(patch);
+        if(rootsChanged)void experimentalCatalog.rescan().catch(error=>log('ERROR','保存先変更後の全メディアスキャン失敗',String(error)));
         beginTrial();
         Object.assign(requests.get(req)!, { trialId: trial.id, savedProfile: settings.profile });
         log("SETTINGS", `互換プロファイルを保存: ${settings.profile}`, {
@@ -718,8 +729,7 @@ server.listen(settings.port, "0.0.0.0", async () => {
   boundPort = (server.address() as { port: number }).port;
   log("APP", `管理画面: http://localhost:${boundPort}`);
   if (process.env.PT3_DISABLE_SSDP !== "1") ssdp.start(localAddress());
-  await scanFolders(log);
-  pcrBackground.start();
-  experimentalCatalog.startBackground();
+  try{await experimentalCatalog.rescan();}catch(error){log('ERROR','初回全メディアスキャン失敗',String(error));}
+  pcrBackground.start();experimentalCatalog.startBackground();
 });
 for (const signal of ["SIGINT", "SIGTERM"]) process.on(signal, () => { cdEvents.close();ssdp.stop(); void Promise.all([experimentalCatalog.stopBackground(),pcrBackground.stop()]).finally(()=>server.close(() => process.exit(0))); });

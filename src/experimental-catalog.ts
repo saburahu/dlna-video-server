@@ -102,13 +102,13 @@ export function cachedExperimentalDecision(record: ShadowRecord): CachedExperime
     candidateStrategies: [...new Set(record.shadowDecision?.candidates.map(c => c.strategy))], unknowns: record.unknowns, decisionFingerprint: decisionFingerprint(record) };
 }
 /** No scans/network/probes. Only a small allowlisted manifest refreshed by explicit CLI. */
-export function createExperimentalCatalog(directory: string, trace: (message: string, detail: unknown) => void, folders: () => string[] = () => [], jitDependencies:Parameters<typeof createExperimentalJit>[2]={},recordings?:NonNullable<Parameters<typeof createCatalogBackground>[3]>['recordings']) {
+export function createExperimentalCatalog(directory: string, trace: (message: string, detail: unknown) => void, folders: () => string[] = () => [], jitDependencies:Parameters<typeof createExperimentalJit>[2]={},recordings?:NonNullable<Parameters<typeof createCatalogBackground>[3]>['recordings'],scanDependencies:Pick<NonNullable<Parameters<typeof createCatalogBackground>[3]>,'busy'|'recordingState'>={}) {
   const images=createImageDelivery(directory,trace);
   const direct=createDirectMedia(folders,trace);
   const integrationEnabled=librarySwitch(directory);
   const jit = createExperimentalJit(directory, (category, detail) => trace(category, detail),jitDependencies);
   const renderLibrary=async(e:ExperimentalEntry,base:string,remote:string)=>direct.item(e,base,remote)??libraryItem(await jit.decorate(e,remote),base);
-  const background=createCatalogBackground(directory,folders,trace,{busy:()=>jit.status().some(s=>s.active),probe:jitDependencies.inspect,recordings});
+  const background=createCatalogBackground(directory,folders,trace,{...scanDependencies,busy:()=>jit.status().some(s=>s.active)||scanDependencies.busy?.()===true,probe:jitDependencies.inspect,recordings});
   const artifacts = createArtifactRuntime(directory, folders, (category, message, detail) => trace(`${category}: ${message}`, detail));
   let cached: ExperimentalCatalog | undefined, stamp = -1;
   let database:Promise<MediaIndex>|undefined;
@@ -192,7 +192,7 @@ export function createExperimentalCatalog(directory: string, trace: (message: st
       }catch(error){trace('LIBRARY_BROWSE_ERROR',{error:String(error)});return;}
     },
     async libraryMedia(req:IncomingMessage,res:ServerResponse,token:string){jit.receive(req);if(!await integrationEnabled()){res.writeHead(404);res.end();return;}return this.jitMedia(req,res,token,true);},
-    startBackground:()=>background.start(),stopBackground:async()=>{await background.stop();await jit.closeAutomatic();},backgroundStatus:()=>background.status(),
+    startBackground:()=>background.start(),stopBackground:async()=>{await background.stop();await jit.closeAutomatic();},backgroundStatus:()=>background.status(),rescan:()=>background.scanNow(),configureScanInterval:(seconds:number)=>background.configureInterval(seconds),
     async updateId(){try{const db=await index();return ((db?.enabled?db.updateId:0)+await integrationEnabled.revision()+await jit.revision())>>>0;}catch{return 0;}},
     async closeIndex(){if(database){const db=await database;db.close();database=undefined;}},
     observe(record: ShadowRecord) {

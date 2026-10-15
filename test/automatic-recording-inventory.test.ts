@@ -9,12 +9,12 @@ test('one periodic catalog traversal also publishes TS changes, preserves IDs/Up
  await fs.mkdir(media);await fs.mkdir(directory,{recursive:true});await fs.writeFile(path.join(directory,'automatic.json'),JSON.stringify({enabled:true,scanIntervalMs:1000}));
  process.env.PT3_DATA_DIR=data;const store=await import('../src/store.js');await store.loadStore();await store.updateSettings({folders:[media]});
  const {createCatalogBackground}=await import('../src/catalog-background.js'),{openMediaIndex}=await import('../src/media-catalog-index.js');
- let probes=0;const worker=createCatalogBackground(directory,()=>store.settings.folders,()=>{},{busy:()=>true,probe:async()=>{probes++;throw Error('No probe allowed in stat-only test');},recordings:i=>store.scanFolders(()=>{},i)});
+ let probes=0;const worker=createCatalogBackground(directory,()=>store.settings.folders,()=>{},{probe:async()=>{probes++;return {probe:{format:{duration:'1'},streams:[]},cacheHit:false};},recordings:i=>store.scanFolders(()=>{},i)});
  const db=await openMediaIndex(directory);t.after(async()=>{await worker.stop();db.close();await fs.rm(root,{recursive:true,force:true});});
  const first=path.join(media,'最初.ts');await fs.writeFile(first,'fixture');await fs.writeFile(path.join(media,'映画.mp4'),'fixture');
  worker.start();const until=async(predicate:()=>boolean)=>{for(let n=0;n<150&&!predicate();n++)await new Promise(r=>setTimeout(r,20));assert.ok(predicate());await worker.runOnce();};
  await until(()=>store.programs.length===1&&db.count()===1);const id=store.programs[0].id,update=store.systemUpdateId,sqlUpdate=db.updateId;
- await worker.runOnce(true);assert.equal(store.systemUpdateId,update);assert.equal(db.updateId,sqlUpdate);assert.equal(probes,0);
+ await worker.scanNow();assert.equal(store.systemUpdateId,update);assert.equal(db.updateId,sqlUpdate);
  const nested=path.join(media,'深い');await fs.mkdir(nested);const added=path.join(nested,'追加.ts'),avi=path.join(nested,'追加.avi');await fs.writeFile(added,'fixture');await fs.writeFile(avi,'fixture');
  await until(()=>store.programs.length===2&&db.count()===2);assert.equal(store.programs.find(p=>p.filePath===first)!.id,id);
  await fs.appendFile(first,'more');await worker.runOnce(true);assert.equal(store.programs.find(p=>p.id===id)!.size,11);
@@ -22,7 +22,7 @@ test('one periodic catalog traversal also publishes TS changes, preserves IDs/Up
  const open=fs.opendir;try{fs.opendir=((folder:any)=>folder===media?Promise.reject(Object.assign(Error('denied'),{code:'EACCES'})):open(folder)) as typeof fs.opendir;await worker.runOnce(true);assert.equal(store.programs.length,1);assert.equal(store.programs[0].id,id);assert.equal(db.count(),1);}finally{fs.opendir=open;}
  await store.scanFolders(()=>{},{roots:[path.join(root,'stale-root')],entries:[],failedPaths:[]});assert.equal(store.programs.length,1);
  const a=store.scanFolders(()=>{}),b=store.scanFolders(()=>{});assert.equal(a,b);await a;
- await worker.stop();await fs.writeFile(path.join(media,'停止後.ts'),'fixture');await worker.runOnce(true);assert.equal(store.programs.length,1);assert.equal(probes,0);
+ await worker.stop();const stoppedProbes=probes;await fs.writeFile(path.join(media,'停止後.ts'),'fixture');await worker.runOnce(true);assert.equal(store.programs.length,1);assert.equal(probes,stoppedProbes);
 });
 
 test('5000-entry mixed library shares TS stat inventory with the indexed scan without probes',async t=>{

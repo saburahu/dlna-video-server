@@ -4,7 +4,7 @@ import type {Stats} from 'node:fs';
 
 export const sourcePathKey=(file:string)=>process.platform==='win32'?path.resolve(file).toLowerCase():path.resolve(file);
 export const withinSourcePath=(file:string,parent:string)=>{const relative=path.relative(sourcePathKey(parent),sourcePathKey(file));return relative===''||(!relative.startsWith('..'+path.sep)&&relative!=='..'&&!path.isAbsolute(relative));};
-export interface DiscoveryState {failedPaths:string[];linksSkipped:number;failedRoots?:string[];onDirectory?:(directory:string)=>void}
+export interface DiscoveryState {failedPaths:string[];linksSkipped:number;failedRoots?:string[];onDirectory?:(directory:string)=>void;signal?:AbortSignal;beforeDirectory?:()=>Promise<void>}
 export interface RecordingInventory {roots:string[];entries:{file:string;stat:Stats}[];failedPaths:string[]}
 /** Iterative, stat-only discovery. Never follows reparse links or loads media. */
 export async function* discoverLibrary(roots:readonly string[],extensions:RegExp,state:DiscoveryState,
@@ -12,7 +12,9 @@ export async function* discoverLibrary(roots:readonly string[],extensions:RegExp
  const visited=new Set<string>(),files=new Set<string>();
  const pending:{folder:string;root:string;file?:boolean}[]=[...roots].reverse().map(folder=>({folder:path.resolve(folder),root:path.resolve(folder)}));
  while(pending.length){const {folder,root,file:isFile}=pending.pop()!;
+  state.signal?.throwIfAborted();
   if(isFile){try{const stat=await io.stat(folder),key=sourcePathKey(folder);if(stat.isFile()&&!files.has(key)){files.add(key);yield {file:folder,stat,root};}}catch{state.failedPaths.push(folder);(state.failedRoots??=[]).push(root);}continue;}
+  await state.beforeDirectory?.();state.signal?.throwIfAborted();
   try{
    const real=await io.realpath(folder),key=sourcePathKey(real);if(visited.has(key))continue;
    const dir=await io.opendir(real);visited.add(key);

@@ -31,7 +31,7 @@ Node.jsは同梱済みです。別途Node.js、Git、npm、開発ツールを入
 | Import stopped old PC data directory | **新規導入ならEnter**。録画フォルダをここへ入れないでください。既存環境の復元・移行専用です。 |
 | Recording folders separated by \| | 録画の保存先。例 `D:\Recordings`。複数なら半角の縦棒で区切ります（下の例）。実際には自分の存在するフォルダを指定します。 |
 | Server name shown on TV | テレビで区別できる名前。Enterなら既存名またはPC名を使います。 |
-| Library refresh interval in seconds | 通常はEnterで60秒。必要なら30～86400秒。 |
+| Library refresh interval in seconds | 新規導入ではEnterで30分（1800秒）。既存の保存済み間隔は保持。必要なら30～86400秒。 |
 | Start automatically at this user logon? | 自動起動したい場合は `y`。初回確認だけなら `n` またはEnter。Windowsログオン後の自動起動であり、ログオン前のサービスではありません。 |
 
 複数録画フォルダの入力例（区切りの前後に空白を入れません）：
@@ -52,7 +52,7 @@ Windows Firewallの確認が出た場合、同梱の `runtime\node.exe` に対�
 
 ブラウザが開かなくても、サーバーPCで `http://localhost:19090` を開ければ確認できます。ポートを変えた場合はその番号です。現版はlocalhost管理限定なので、別PCからサーバーのLANアドレスを指定しても管理できません。
 
-管理画面「設定」で録画フォルダを確認し、「番組一覧」の「再スキャン」で一覧を更新できます。この画面の表は通常TSが中心で、MP4等は別のcatalogで管理します。表にMP4がないことだけで未登録と判断せず、DLNAの「すべて／フォルダ別」でも確認してください。
+管理画面「設定」で録画フォルダを確認し、「番組一覧」の「全メディアを再スキャン」でTS・MP4・MKV・AVI・WMV・ASFとサブフォルダを更新します。ダッシュボードに総数・内訳・探索/codec解析の状態を表示します。表はTS番組情報用です。その他動画はDLNAの「すべて／フォルダ別」で参照します。[探索完了と再生準備完了の違い](MEDIA-SCAN.md)も確認してください。
 
 NAS上の録画は、サーバーを起動したWindowsユーザーに読み取り権限が必要です。設定・SQLite・PCR索引はローカルディスクへ保存します。元録画は変更しません。
 
