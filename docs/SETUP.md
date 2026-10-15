@@ -6,10 +6,10 @@
 
 [Releasesの最新版](https://github.com/saburahu/pt3-recording-server/releases/latest)のAssetsから `PT3-Recording-Server-…-win-x64.zip` と `SHA256SUMS.txt` を取得します。GitHubの緑色のCodeボタンや `Source code (zip)` ではなく、Windows用ZIPを選びます。
 
-必要ならダウンロード先でPowerShellを開き、v0.2.0では次でSHA-256を確認します。結果を同じReleaseのSHA256SUMS.txtと照合します。
+必要ならダウンロード先でPowerShellを開き、v0.2.1では次でSHA-256を確認します。別の版では実際のファイル名へ置き換え、結果を同じReleaseのSHA256SUMS.txtと照合します。
 
 ```powershell
-Get-FileHash -Algorithm SHA256 -LiteralPath '.\PT3-Recording-Server-0.2.0-win-x64.zip'
+Get-FileHash -Algorithm SHA256 -LiteralPath '.\PT3-Recording-Server-0.2.1-win-x64.zip'
 ```
 
 エクスプローラーで「すべて展開」し、書き込み可能なローカルフォルダへ置きます。アプリを録画フォルダ・dataフォルダ・NAS・書込み制限のあるProgram Filesへ置かないでください。展開先には `Setup.cmd`、`Start.cmd`、`runtime`、`app` が見えます。

@@ -1,6 +1,6 @@
 {
   "name": "pt3-recording-server",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "private": true,
   "description": "家庭内LAN向け録画ファイルUPnP/DLNAメディアサーバー",
   "type": "module",
@@ -8,7 +8,7 @@
     "start": "tsx src/server.ts",
     "dev": "tsx watch src/server.ts",
     "typecheck": "tsc --noEmit",
-    "test": "node --import tsx --test --test-concurrency=4 test/*.test.ts",
+    "test": "node --import tsx --test --test-concurrency=4 test/*.test.ts packaging/setup.test.mjs",
     "build": "tsc -p tsconfig.build.json",
     "logs:summary": "tsx src/log-summary.ts",
     "package:windows": "node packaging/build.mjs",

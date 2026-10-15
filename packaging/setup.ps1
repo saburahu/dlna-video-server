@@ -47,7 +47,11 @@ if ($seconds) { $cli += @('--scan-seconds', $seconds) }
 & $node @cli
 if ($LASTEXITCODE -ne 0) { throw 'Setup failed' }
 $auto = Read-Host 'Start automatically at this user logon? [y/N]'
-if ($auto -eq 'y') { & (Join-Path $PSScriptRoot 'autostart.ps1') -DataDirectory $data }
+if ($auto -eq 'y') {
+  $global:LASTEXITCODE = 0
+  & (Join-Path $PSScriptRoot 'autostart.ps1') -DataDirectory $data
+  if (-not $? -or $LASTEXITCODE -ne 0) { throw 'Logon startup registration failed' }
+}
 Write-Host 'For TV discovery, allow runtime\node.exe on PRIVATE networks in Windows Firewall.'
 Write-Host 'Do not enable public-network access. NAS access uses this logged-in user.'
 if (-not $NoStart) {

@@ -1,0 +1,16 @@
+# 変更履歴
+
+## v0.2.1
+
+- Setup.cmdが失敗時にも終了コード0を返す問題を修正。PowerShell直後の終了コードを保持し、pause後に呼出元へ返します。成功は0、失敗は非0です。
+- セットアップで選択した自動起動登録の失敗も検出します。対話・Setup後の起動・既存データの引き継ぎは維持します。
+- DLNA再生、JIT、Seek、PCR索引、クライアント判定の変更はありません。Node.js 24.22.0同梱、FFmpeg／ffprobe別配置（確認版8.1.2）の構成も維持します。
+- 実CMDの成功／失敗、日本語・空白パス、合成素材での配布版・更新検証を実施。実機全機種の再検証ではありません。クリーンWindows VM、Firewall対話、NAS、自動ログオン登録の実操作は未検証です。
+
+更新時は旧版の再生を終え、Stop.cmd→Backup.cmd→新版を別フォルダへ展開→Setupで同じdataと外部FFmpeg binを指定します。UDN・catalog・PCR索引を初期化する必要はありません。同じdataの旧新版を同時起動しないでください。[詳細手順](docs/UPDATE.md)
+
+Start／Stop／Backup等の他CMD終了コードは今回の修正対象外です。表示された結果も確認してください。
+
+## v0.2.0
+
+最初の一般公開版。通常TS、AVC／独立PCR MPEG-2 JIT、VLC Direct Play、2本同時JIT、PCR索引管理、Windowsポータブル版を提供。その後、Web導入ガイドとIssueテンプレートを改善しました。
