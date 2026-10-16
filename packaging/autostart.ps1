@@ -3,6 +3,7 @@ $ErrorActionPreference = 'Stop'
 if (-not $DataDirectory) { $DataDirectory = (Get-Content -Encoding UTF8 -Raw -LiteralPath (Join-Path $PSScriptRoot 'launcher.json') | ConvertFrom-Json).data }
 $sha = [System.Security.Cryptography.SHA256]::Create()
 $tag = ([BitConverter]::ToString($sha.ComputeHash([Text.Encoding]::UTF8.GetBytes([IO.Path]::GetFullPath($DataDirectory).ToLowerInvariant())))).Replace('-','').Substring(0,12)
+# Keep the legacy task/shortcut ID: upgrades and Remove must address the same entry.
 $name = "PT3 DLNA $tag"
 $shortcut = Join-Path ([Environment]::GetFolderPath('Startup')) "$name.lnk"
 if ($PlanOnly) { [pscustomobject]@{Name=$name;DataDirectory=$DataDirectory;Executable=(Join-Path $PSScriptRoot 'runtime\node.exe');Arguments=('"' + (Join-Path $PSScriptRoot 'control.mjs') + '" start');Logon='Current user';StartupFallback=$shortcut} | ConvertTo-Json; exit }
@@ -17,7 +18,7 @@ $settings = New-ScheduledTaskSettingsSet -MultipleInstances IgnoreNew -Execution
 try {
   Register-ScheduledTask -TaskName $name -Action $action -Trigger $trigger -Principal $principal -Settings $settings -Force | Out-Null
   if (Test-Path -LiteralPath $shortcut) { Remove-Item -LiteralPath $shortcut }
-  Write-Host "Registered per-user logon task: $name (no password stored)."
+  Write-Host "DLNA Video Server: registered per-user logon task: $name (no password stored)."
 } catch {
   # Locked-down PCs may deny Task Scheduler registration even for the current user.
   $shell = New-Object -ComObject WScript.Shell
@@ -27,5 +28,5 @@ try {
   $link.WorkingDirectory = $PSScriptRoot
   $link.WindowStyle = 7
   $link.Save()
-  Write-Host "Task registration unavailable; installed per-user Startup shortcut: $name"
+  Write-Host "DLNA Video Server: task registration unavailable; installed per-user Startup shortcut: $name"
 }

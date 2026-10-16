@@ -15,7 +15,7 @@ export function deviceXml(baseUrl: string): string {
  <friendlyName>${escapeXml(settings.friendlyName)}</friendlyName>
  <manufacturer>Local Recording Server Project</manufacturer>
  <modelDescription>Network TV Recording Media Server</modelDescription>
- <modelName>PT3 Recording Server</modelName><modelNumber>0.1</modelNumber>
+ <modelName>DLNA Video Server</modelName><modelNumber>0.1</modelNumber>
  <serialNumber>${escapeXml(settings.udn.replace("uuid:", "").slice(0, 12))}</serialNumber><UDN>${settings.udn}</UDN>
  <dlna:X_DLNADOC>DMS-1.50</dlna:X_DLNADOC>
  <serviceList>

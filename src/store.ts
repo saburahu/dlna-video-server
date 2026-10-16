@@ -34,7 +34,7 @@ const settingsFile = path.join(dataDir, "settings.json");
 const programsFile = path.join(dataDir, "programs.json");
 
 export let settings: Settings = {
-  friendlyName: "PT3 録画サーバー", port: 19090, interfaceAddress: "",
+  friendlyName: "DLNA Video Server", port: 19090, interfaceAddress: "",
   folders: [], profile: "regza-zp2-buffered", udn: `uuid:${randomUUID()}`
 };
 export let programs: Program[] = [];

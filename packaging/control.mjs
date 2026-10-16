@@ -12,6 +12,7 @@ const option=(name,fallback)=>{const n=args.indexOf(name);return n<0?fallback:ar
 const json=async file=>JSON.parse(await fs.readFile(file,'utf8'));
 const write=async(file,value)=>{await fs.mkdir(path.dirname(file),{recursive:true});const tmp=file+'.'+randomUUID()+'.tmp';await fs.writeFile(tmp,JSON.stringify(value,null,2));await fs.rename(tmp,file);};
 const exists=async p=>!!await fs.stat(p).catch(()=>false);
+// Keep the legacy data directory so upgrades retain settings, UDN and catalog.
 const defaultData=path.join(process.env.LOCALAPPDATA??os.homedir(),'PT3 Recording Server');
 let config=await exists(path.join(root,'launcher.json'))?await json(path.join(root,'launcher.json')):{data:defaultData};
 const data=path.resolve(option('--data',config.data)),lock=path.join(data,'portable-running.json');
@@ -64,7 +65,7 @@ try{
   if(data.startsWith('\\\\'))throw Error('SQLite/application data must be local, not a UNC share; recording roots may use UNC');
   const appRelative=path.relative(root,data);if(appRelative===''||(!appRelative.startsWith('..')&&!path.isAbsolute(appRelative)))throw Error('Keep application data outside the package directory');
   const sf=path.join(data,'settings.json'),old=await exists(sf)?await json(sf):undefined;
-  const name=option('--name',old?.friendlyName??`PT3 (${os.hostname()})`).trim();if(!name||name.length>128||/[\x00-\x1f\x7f]/.test(name))throw Error('Server name must be 1..128 characters without control characters');
+  const name=option('--name',old?.friendlyName??'DLNA Video Server').trim();if(!name||name.length>128||/[\x00-\x1f\x7f]/.test(name))throw Error('Server name must be 1..128 characters without control characters');
   const scanSeconds=option('--scan-seconds');if(scanSeconds!==undefined&&(!Number.isInteger(Number(scanSeconds))||Number(scanSeconds)<30||Number(scanSeconds)>86400))throw Error('Refresh interval must be 30..86400 seconds');
   const port=Number(option('--port',old?.port??19090));if(!Number.isInteger(port)||port<1024||port>65535)throw Error('Port must be 1024..65535');
   const selectedAddress=option('--address',old?.interfaceAddress??''),address=selectedAddress==='auto'?'':selectedAddress;if(address&&!Object.values(os.networkInterfaces()).flat().some(i=>i?.address===address&&i.family==='IPv4'))throw Error('Selected address is not a local IPv4 address');
