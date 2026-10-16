@@ -81,3 +81,6 @@ FFmpeg／ffprobeの両方を同じbuildから配置し、Diagnose.cmdを実行�
 `Stop this data directory before setup/import/backup` は同じデータでDMSが稼働中のため、安全に拒否した状態です。全端末の再生を終了して、そのアプリのStop.cmdで停止します。稼働中ロックを手動削除したり、ほかのNodeプロセスをまとめて終了したりしないでください。
 
 Setupのエラーが出た場合は、最後の「何かキーを押してください」を成功と解釈しないでください。v0.2.0のSetup.cmdは失敗時でも終了コード0となる場合がありました。**v0.2.1で修正済み**で、成功時0、失敗時非0を返します。エラーの詳細は画面でも確認してください。Start／Stop／Backup等の他CMDラッパーの終了コードは今回の修正対象外です。
+
+
+v0.2.3の端末探索復旧については[詳しい説明](CLIENT-DISCOVERY.md)を参照してください。既存の設定・UDN・catalog・PCR索引は保持します。

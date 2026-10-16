@@ -51,7 +51,7 @@ test('background identity cache deduplicates work, expires/rechecks, survives re
  const first=m.resolve(p,'127.0.0.1');assert.ok(first.binding);const revision=m.status().revision;
  now+=300001;assert.equal(m.resolve(p,'127.0.0.1').binding,undefined);await m.observe('127.0.0.1',{},'',true);await m.idle();assert.equal(calls,2);assert.equal(m.resolve(p,'127.0.0.1').binding,first.binding,'same identity refresh keeps TimeSeek URL valid');assert.ok(m.status().revision>revision,'expired availability restored emits UpdateID change');
  current=endpoint(false,'uuid:replacement');now+=300001;await m.observe('127.0.0.1',intelUA,'',true);await m.idle();assert.notEqual(m.resolve(p,'127.0.0.1').binding,first.binding);
- const restarted=createAutomaticJitClients(dir,()=>{},async()=>{throw Error('fresh cache should suffice');},()=>now);await restarted.observe('127.0.0.1',{},'',true);assert.equal(restarted.resolve(p,'127.0.0.1').binding,undefined,'cached DMS alone never identifies outbound implementation');await restarted.observe('127.0.0.1',intelUA,'',true);assert.equal(restarted.resolve(p,'127.0.0.1').profile?.id,'legacy-jp-observed');
+ const restarted=createAutomaticJitClients(dir,()=>{},async()=>[current],()=>now);t.after(()=>restarted.close());await restarted.observe('127.0.0.1',{},'',true);assert.equal(restarted.resolve(p,'127.0.0.1').binding,undefined,'persisted cache alone cannot authorize playback');await restarted.observe('127.0.0.1',intelUA,'',true);await restarted.idle();assert.equal(restarted.resolve(p,'127.0.0.1').profile?.id,'legacy-jp-observed');
  await restarted.observe('127.0.0.1',bdrUA,bdrBrowse,true);assert.equal(restarted.resolve(p,'127.0.0.1').reason,'conflicting-request-implementations');
 });
 
@@ -60,7 +60,7 @@ test('failed endpoint renewal never marks old capability fresh, and automatic-di
  const m=createAutomaticJitClients(dir,()=>{},async()=>{if(fail)throw Error('peer unavailable');return [endpoint()];},()=>now);
  await m.observe('127.0.0.1',intelUA,'',true);await m.idle();assert.ok(m.resolve(p,'127.0.0.1').binding);
  p.automaticClients!.enabled=false;assert.equal(m.resolve(p,'127.0.0.1').reason,'automatic-disabled');p.automaticClients!.enabled=true;
- now+=300001;fail=true;await m.observe('127.0.0.1',intelUA,'',true);await m.idle();assert.equal(m.resolve(p,'127.0.0.1').binding,undefined);assert.equal(m.resolve(p,'127.0.0.1').reason,'no-corroborating-current-endpoint');
+ now+=300001;fail=true;await m.observe('127.0.0.1',intelUA,'',true);await m.idle();assert.equal(m.resolve(p,'127.0.0.1').binding,undefined);assert.equal(m.resolve(p,'127.0.0.1').reason,'automatic-binding-pending-or-expired');await m.close();
 });
 
 test('explicit individual override wins a conflicting family candidate; ambiguous overrides and duplicate identities remain blocked',async t=>{

@@ -36,3 +36,26 @@ test('known URL hints cannot authorize another host, external URL, credentials o
  assert.equal(locations.size,0);
  addKnownClientLocations(remote,locations,Array.from({length:30},(_,i)=>({remoteIp:remote,descriptionUrl:`http://${remote}/${i}`,controlUrl:`http://${remote}/cm`})));assert.equal(locations.size,12);
 });
+
+test('known URL revalidation logs description, identity, CM and redirect failures without stale authorization',async t=>{
+ let mode='ok',sink='';const events:any[]=[];
+ const server=createServer((req,res)=>{
+  res.setHeader('Server','Intel_SDK_for_UPnP_devices/1.2');
+  if(req.url==='/description.xml'){
+   if(mode==='redirect'){res.writeHead(302,{Location:'http://192.168.1.9/private'});res.end();return;}
+   if(mode==='description'){res.writeHead(503);res.end();return;}
+   res.end(`<root><UDN>${mode==='identity'?'uuid:replacement':'uuid:original'}</UDN><service><serviceType>urn:schemas-upnp-org:service:ConnectionManager:1</serviceType><controlURL>/MediaRenderer/ConnectionManager/Control</controlURL><SCPDURL>/xml/ConnectionManager.xml</SCPDURL></service></root>`);
+  }else{if(mode==='cm'){res.writeHead(503);res.end();return;}res.end(`<Envelope><Source>not-sink</Source><Sink>${sink}</Sink></Envelope>`);}
+ });
+ server.listen(0,'127.0.0.1');await once(server,'listening');t.after(()=>{server.closeAllConnections();server.close();});
+ const base='http://127.0.0.1:'+(server.address() as {port:number}).port,location=base+'/description.xml',remote='127.0.0.1';
+ const known=[{remoteIp:remote,deviceId:'uuid:original',descriptionUrl:location,controlUrl:base+'/MediaRenderer/ConnectionManager/Control'}];
+ const read=()=>readClientLocations(remote,new Map([[location,[]]]),new Set(),known,(event,detail)=>events.push({event,detail}));
+ const first=(await read())[0];assert.ok(first);assert.equal(first.discovery,'known-url-revalidated');
+ for(const bad of ['identity','description','cm','redirect']){
+  mode=bad;assert.deepEqual(await read(),[]);const last=events.at(-1).detail;
+  assert.equal(last.reason,bad==='identity'?'identity-mismatch':bad==='description'?'http-503':'request-failed');
+  assert.equal(last.stage,bad==='cm'?'connection-manager':'description');
+ }
+ mode='ok';sink='http-get:*:video/mpeg:*';const recovered=(await read())[0];assert.ok(recovered);assert.notEqual(recovered.capability.sinkHash,first.capability.sinkHash,'changed capability must produce a different binding, never reuse old evidence');
+});

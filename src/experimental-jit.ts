@@ -85,8 +85,8 @@ interface Dependencies {
 export function createExperimentalJit(directory: string, trace: JitTrace, overrides: Partial<Dependencies> = {}) {
   const deps = { inspect: inspectJitMetadata, capability: acquireCapability, createRuntime: createJitServer, timing:chooseJitTiming,
     devices: async () => await readShadowJson<RegisteredDmp[]>(path.join(shadowDirectory(), 'devices.json')) ?? [], ...overrides };
-  const automatic=createAutomaticJitClients(directory,trace,async(remote,known=[])=>
-    (deps.discover??discoverClientEndpoints)(remote,[...known,...await deps.devices()]));
+  const automatic=createAutomaticJitClients(directory,trace,async(remote,known=[],diagnostic)=>
+    (deps.discover??discoverClientEndpoints)(remote,[...known,...await deps.devices()],diagnostic));
   const selectionLogs=new Map<string,string>();
   const sessions = new Map<string, { key: string; runtime: Runtime }>();
   const preparing = new Set<string>();

@@ -1,0 +1,15 @@
+# 端末探索の失敗と復旧
+
+[README](../README.md) ／ [トラブルシューティング](TROUBLESHOOTING.md)
+
+v0.2.3は端末の一時的な探索失敗からの復旧を改善します。端末が未確認ならJIT resourceを返さず、5/15/30/60秒のバックオフで現在の情報を再確認します。正常時の証拠は従来どおり5分有効です。追加Browseがなくても失敗後の再試行を行います。直近24時間に実要求がない端末は再試行を終了します。
+
+既知URLは到達先の候補であり、保存済みcapabilityによる再生許可ではありません。再起動後も現在のDescription/UDN/ConnectionManager/Sinkを取得し、複合fingerprint/recipe/要求元/発行済みresourceの照合を維持します。既知URLのUDNが変われば拒否します。SourceをSinkとして扱いません。
+
+探索は全体で直列、peerごとの重複を統合し、待機最大16/peer最大128/既知URL最大12とします。Browseはネットワーク結果を待ちません。待機/通信時間が加わるため厳密な5秒復旧保証ではありません。復旧後もテレビの一覧再取得が必要な場合があります。
+
+診断ログのAUTO_CLIENT_DISCOVERY_STAGEはSSDP無応答/transport error、Description取得失敗、UDN不一致、CM失敗を区別します。AUTO_CLIENT_RETRY_SCHEDULED/WAITは遅延・待機理由を記録します。ログには端末情報が含まれるので公開Issueへそのまま添付しないでください。
+
+Private修正版でZP2の実機動作をユーザーが確認しています。自動復旧は制御時計/合成端末による模擬テストです。Public v0.2.3 ZIPそのもののZP2実機試験は未実施です。SSDP失敗の根本原因（端末不応答、UDP欠落等）は未確定です。
+
+更新はStop→Backup→新版を別アプリフォルダへ展開→同じdata/外部FFmpegをSetupで指定。既存データを初期化しません。管理画面/APIのlocalhost限定を維持します。

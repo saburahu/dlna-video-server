@@ -42,13 +42,16 @@ function safeDeviceUrl(urlText: string, remoteIp: string) {
   return url;
 }
 /** Only read-only device description and ConnectionManager:GetProtocolInfo. */
-export async function acquireCapability(device: RegisteredDmp, signal: AbortSignal): Promise<CapabilitySnapshot> {
+export async function acquireCapability(device: RegisteredDmp, signal: AbortSignal, onStage?:(stage:'description'|'identity'|'connection-manager')=>void): Promise<CapabilitySnapshot> {
   const description = safeDeviceUrl(device.descriptionUrl, device.remoteIp), control = safeDeviceUrl(device.controlUrl, device.remoteIp);
+  onStage?.('description');
   const descriptionResponse = await fetch(description, { redirect: 'error', signal });
   const xml = await boundedResponse(descriptionResponse);
   const actualId = xmlValue(xml, 'UDN');
+  onStage?.('identity');
   if (!actualId || (device.deviceId && actualId !== device.deviceId)) throw new Error('DMP identity changed at registered IP; re-register required');
   const service = 'urn:schemas-upnp-org:service:ConnectionManager:1';
+  onStage?.('connection-manager');
   const response = await boundedResponse(await fetch(control, { method: 'POST', redirect: 'error', signal,
     headers: { 'Content-Type': 'text/xml; charset=utf-8', SOAPAction: `"${service}#GetProtocolInfo"` },
     body: `<s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/"><s:Body><u:GetProtocolInfo xmlns:u="${service}"/></s:Body></s:Envelope>` }));
