@@ -69,8 +69,9 @@ try{
   const scanSeconds=option('--scan-seconds');if(scanSeconds!==undefined&&(!Number.isInteger(Number(scanSeconds))||Number(scanSeconds)<30||Number(scanSeconds)>86400))throw Error('Refresh interval must be 30..86400 seconds');
   const port=Number(option('--port',old?.port??19090));if(!Number.isInteger(port)||port<1024||port>65535)throw Error('Port must be 1024..65535');
   const selectedAddress=option('--address',old?.interfaceAddress??''),address=selectedAddress==='auto'?'':selectedAddress;if(address&&!Object.values(os.networkInterfaces()).flat().some(i=>i?.address===address&&i.family==='IPv4'))throw Error('Selected address is not a local IPv4 address');
-  const folders=option('--folders')?.split('|').filter(Boolean)??old?.folders??[];
-  if(!folders.length)throw Error('Specify at least one recording root with --folders (separate multiple roots using |)');
+  const requestedFolders=option('--folders')?.split('|').map(f=>f.trim()).filter(Boolean);
+  // Blank setup input means keep existing roots, or configure them later in the UI.
+  const folders=requestedFolders?.length?requestedFolders:old?.folders??[];
   for(const folder of folders){if(!path.isAbsolute(folder)||(await fs.stat(folder)).isDirectory()!==true)throw Error('Recording root is not an accessible absolute directory: '+folder);const relative=path.relative(folder,data);if(relative===''||(!relative.startsWith('..')&&!path.isAbsolute(relative)))throw Error('Application data must be outside recording roots');}
   if(old&&JSON.stringify(old.folders)!==JSON.stringify(folders))throw Error('Change migrated recording roots in the management UI after backup; path changes may create new catalog IDs.');
   await write(sf,{profile:'regza-zp2-buffered',udn:'uuid:'+randomUUID(),...old,friendlyName:name,port,interfaceAddress:address,folders});

@@ -36,7 +36,7 @@ if (-not $settingsExists) {
     & $node @importArgs
     if ($LASTEXITCODE -ne 0) { throw 'Import failed' }
   } else {
-    $folders = Read-Host 'Recording folders separated by | (at least one required)'
+    $folders = Read-Host 'Recording folders separated by | (blank = add later in web settings)'
     if ($folders) { $cli += @('--folders', $folders) }
   }
 }

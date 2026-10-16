@@ -29,7 +29,7 @@ Node.jsは同梱済みです。別途Node.js、Git、npm、開発ツールを入
 | LAN IPv4 address | 通常はEnterで自動選択。複数NIC・VPNがある場合は、表示された一覧からテレビと同じLANのIPv4を入力します。テレビのIPではありません。 |
 | FFmpeg bin directory | `ffmpeg.exe` と `ffprobe.exe` があるbinフォルダのフルパス。[選び方](FFMPEG.md)。 |
 | Import stopped old PC data directory | **新規導入ならEnter**。録画フォルダをここへ入れないでください。既存環境の復元・移行専用です。 |
-| Recording folders separated by \| | 録画の保存先。例 `D:\Recordings`。複数なら半角の縦棒で区切ります（下の例）。実際には自分の存在するフォルダを指定します。 |
+| Recording folders separated by \| | 空欄なら後で登録できます。録画の保存先。例 `D:\Recordings`。複数なら半角の縦棒で区切ります（下の例）。実際には自分の存在するフォルダを指定します。 |
 | Server name shown on TV | テレビで区別できる名前。Enterなら既存名またはPC名を使います。 |
 | Library refresh interval in seconds | 新規導入ではEnterで30分（1800秒）。既存の保存済み間隔は保持。必要なら30～86400秒。 |
 | Start automatically at this user logon? | 自動起動したい場合は `y`。初回確認だけなら `n` またはEnter。Windowsログオン後の自動起動であり、ログオン前のサービスではありません。 |
@@ -67,3 +67,7 @@ NAS上の録画は、サーバーを起動したWindowsユーザーに読み取�
 Windowsの警告やSetupのエラーが出たら、そのまま何度もStartを重ねず、[症状別ガイド](TROUBLESHOOTING.md)を確認してください。端末がフリーズ・再起動したら同じ再生を繰り返さず、[ログ](LOGS.md)を保存します。
 
 名称変更後の配布ZIPの基本名は `DLNA-Video-Server-0.2.3-win-x64.zip` です。既存Releaseの旧名称ZIPはそのまま保持しています。入手したZIPの名前に合わせて上のハッシュ確認コマンドを読み替えてください。新名称の配布公開前は、既存ReleaseのZIPをご利用ください。
+
+### 動画フォルダーを後で登録する
+
+Setup.cmdの録画フォルダー入力は空欄で完了できます。サーバー起動後、管理画面の「設定」でフォルダーを1行1件入力し保存してください。再起動なしでスキャンが始まります。動画はcodec解析完了後に再生可能になります。未登録時は一覧0件で正常です。既存環境のSetup再実行で空欄にしても、保存済みフォルダーは保持します。管理画面で全フォルダーを削除して保存すると公開一覧が空になりますが、元ファイルは削除しません。

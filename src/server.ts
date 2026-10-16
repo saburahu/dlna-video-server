@@ -576,7 +576,7 @@ async function handler(req: IncomingMessage, res: ServerResponse) {
         const checks: any[] = [];
         checks.push({ name: "Device Description", ok: deviceXml(baseUrl()).includes(settings.udn) });
         checks.push({ name: "ContentDirectory", ok: true });
-        checks.push({ name: "登録番組", ok: programs.length > 0, detail: `${programs.length}件` });
+        checks.push({ name: "登録番組", ok: settings.folders.length === 0 || programs.length > 0, detail: settings.folders.length === 0 ? "動画フォルダー未登録（設定から追加できます）" : `${programs.length}件` });
         if (programs[0]) {
           const st = safeStat(programs[0].filePath);
           checks.push({ name: "Range解析", ok: !!st && parseRange("bytes=0-1023", st.size)?.start === 0 });
