@@ -1,7 +1,7 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import os from 'node:os';
-import {inspectFirewall,firewallText}from'./firewall.mjs';
+import {inspectFirewall,firewallText,firewallJson}from'./firewall.mjs';
 import {spawn,execFileSync} from 'node:child_process';
 import {fileURLToPath} from 'node:url';
 import {randomUUID,createHash} from 'node:crypto';
@@ -60,7 +60,7 @@ async function copyState(from,to){
 try{
  if(cmd==='ffmpeg'){await offline();const external=await externalFFmpeg(root,{ffmpegDirectory:option('--directory')});config={...config,ffmpegDirectory:external.directory};await write(path.join(root,'launcher.json'),config);console.log('FFmpeg configured: '+external.version);}
  else if(cmd==='doctor'){await doctor();console.log(firewallText(inspectFirewall(root,await json(path.join(data,'settings.json')).catch(()=>({})))));}
- else if(cmd==='firewall'){const r=inspectFirewall(root,await json(path.join(data,'settings.json')).catch(()=>({})));console.log(args.includes('--json')?JSON.stringify(r):firewallText(r));}
+ else if(cmd==='firewall'){const r=inspectFirewall(root,await json(path.join(data,'settings.json')).catch(()=>({})));console.log(args.includes('--json')?firewallJson(r):firewallText(r));}
  else if(cmd==='status'){const s=await state();console.log(JSON.stringify(s,null,2));}
  else if(cmd==='setup'){
   await offline();await doctor();

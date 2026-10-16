@@ -61,6 +61,6 @@ if (-not $NoStart) {
 }
 
 Write-Host 'テレビに見えない場合は Diagnose.cmd を実行してください。配置先変更後は新しい runtime\node.exe の受信許可を確認します。'
-try { & $node $control firewall; if ($LASTEXITCODE -ne 0) { Write-Warning 'ファイアウォール診断を取得できません。Diagnose.cmd またはWindows設定画面で確認してください。' } } catch { Write-Warning 'ファイアウォール診断は判定不能です。Windows設定画面で確認してください。' }
+try { $fwJson = & $node $control firewall --json; if ($LASTEXITCODE -eq 0) { $fw = ($fwJson | Out-String | ConvertFrom-Json); Write-Host $fw.text }; if ($LASTEXITCODE -ne 0) { Write-Warning 'ファイアウォール診断を取得できません。Diagnose.cmd またはWindows設定画面で確認してください。' } } catch { Write-Warning 'ファイアウォール診断は判定不能です。Windows設定画面で確認してください。' }
 # Optional read-only diagnosis must not turn a successful setup into a failure.
 $global:LASTEXITCODE = 0
