@@ -1,6 +1,6 @@
 # 不具合報告とログ
 
-[困ったとき](TROUBLESHOOTING.md) ／ [不具合Issue](https://github.com/saburahu/pt3-recording-server/issues/new?template=bug_report.md)
+[困ったとき](TROUBLESHOOTING.md) ／ [不具合Issue](https://github.com/saburahu/dlna-video-server/issues/new?template=bug_report.md)
 
 ## まず記録する内容
 

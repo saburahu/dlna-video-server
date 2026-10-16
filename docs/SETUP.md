@@ -4,12 +4,12 @@
 
 ## 1. 配布ZIPを取得して展開
 
-[Releasesの最新版](https://github.com/saburahu/pt3-recording-server/releases/latest)のAssetsから `PT3-Recording-Server-…-win-x64.zip` と `SHA256SUMS.txt` を取得します。GitHubの緑色のCodeボタンや `Source code (zip)` ではなく、Windows用ZIPを選びます。
+[Releasesの最新版](https://github.com/saburahu/dlna-video-server/releases/latest)のAssetsから `DLNA-Video-Server-0.2.3-win-x64.zip` と `SHA256SUMS.txt` を取得します。GitHubの緑色のCodeボタンや `Source code (zip)` ではなく、Windows用ZIPを選びます。
 
 必要ならダウンロード先でPowerShellを開き、v0.2.3では次でSHA-256を確認します。別の版では実際のファイル名へ置き換え、結果を同じReleaseのSHA256SUMS.txtと照合します。
 
 ```powershell
-Get-FileHash -Algorithm SHA256 -LiteralPath '.\PT3-Recording-Server-0.2.3-win-x64.zip'
+Get-FileHash -Algorithm SHA256 -LiteralPath '.\DLNA-Video-Server-0.2.3-win-x64.zip'
 ```
 
 エクスプローラーで「すべて展開」し、書き込み可能なローカルフォルダへ置きます。アプリを録画フォルダ・dataフォルダ・NAS・書込み制限のあるProgram Filesへ置かないでください。展開先には `Setup.cmd`、`Start.cmd`、`runtime`、`app` が見えます。
@@ -72,4 +72,4 @@ Windowsの警告やSetupのエラーが出たら、そのまま何度もStartを
 
 Setup.cmdの録画フォルダー入力は空欄で完了できます。サーバー起動後、管理画面の「設定」でフォルダーを1行1件入力し保存してください。再起動なしでスキャンが始まります。動画はcodec解析完了後に再生可能になります。未登録時は一覧0件で正常です。既存環境のSetup再実行で空欄にしても、保存済みフォルダーは保持します。管理画面で全フォルダーを削除して保存すると公開一覧が空になりますが、元ファイルは削除しません。
 
-このフォルダー未登録セットアップはmainと今回再生成したZIPの改善です。既存GitHub v0.2.3 Releaseの添付ZIPは変更していないため、以前のZIPではフォルダー指定が必要です。
+この改善は新名称Release `dlna-v0.2.3` に含まれます。以前の `v0.2.3` 添付ZIPは維持し、変更していません。

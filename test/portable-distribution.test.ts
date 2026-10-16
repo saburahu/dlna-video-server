@@ -10,7 +10,7 @@ import {createServer} from 'node:http';
 const exec=promisify(execFile);
 async function fixture(){
  const root=await fs.mkdtemp(path.join(os.tmpdir(),'pt3-distribution-test-')),data=path.join(root,'state'),app=path.join(root,'application');await fs.mkdir(app);await fs.mkdir(path.join(data,'experimental-catalog'),{recursive:true});
- await fs.copyFile('packaging/control.mjs',path.join(app,'control.mjs'));await fs.copyFile('packaging/external-ffmpeg.mjs',path.join(app,'external-ffmpeg.mjs'));
+ await fs.copyFile('packaging/control.mjs',path.join(app,'control.mjs'));await fs.copyFile('packaging/firewall.mjs',path.join(app,'firewall.mjs'));await fs.copyFile('packaging/external-ffmpeg.mjs',path.join(app,'external-ffmpeg.mjs'));
  const settings={udn:'uuid:test-old-server',folders:[],port:65520,interfaceAddress:'192.0.2.10'};await fs.writeFile(path.join(data,'settings.json'),JSON.stringify(settings));
  const db=new DatabaseSync(path.join(data,'experimental-catalog','media-index.sqlite'));db.exec("CREATE TABLE media(id TEXT PRIMARY KEY); INSERT INTO media VALUES('stable-media-id')");db.close();
  const run=(...args:string[])=>exec(process.execPath,[path.join(app,'control.mjs'),...args],{cwd:app,windowsHide:true});

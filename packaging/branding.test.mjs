@@ -2,7 +2,7 @@ import test from 'node:test';import assert from 'node:assert/strict';import fs f
 const exec=promisify(execFile);
 async function fixture(t){const home=await fs.mkdtemp(path.join(os.tmpdir(),'dlna-defaults-'));t.after(async()=>{assert.equal(path.dirname(home),os.tmpdir());assert.ok(path.basename(home).startsWith('dlna-defaults-'));await fs.rm(home,{recursive:true,force:true});});const app=path.join(home,'日本語 空白'),local=path.join(home,'Local AppData');await fs.mkdir(app);await fs.mkdir(local);return {home,app,local,env:{...process.env,LOCALAPPDATA:local}};}
 test('portable default uses new data directory; explicit and saved directories take precedence without legacy migration',async t=>{
- const f=await fixture(t);await fs.copyFile('packaging/control.mjs',path.join(f.app,'control.mjs'));if(await fs.stat('packaging/external-ffmpeg.mjs').catch(()=>false))await fs.copyFile('packaging/external-ffmpeg.mjs',path.join(f.app,'external-ffmpeg.mjs'));
+ const f=await fixture(t);await fs.copyFile('packaging/control.mjs',path.join(f.app,'control.mjs'));await fs.copyFile('packaging/firewall.mjs',path.join(f.app,'firewall.mjs'));if(await fs.stat('packaging/external-ffmpeg.mjs').catch(()=>false))await fs.copyFile('packaging/external-ffmpeg.mjs',path.join(f.app,'external-ffmpeg.mjs'));
  const legacy=path.join(f.local,'PT3 Recording Server');await fs.mkdir(legacy);await fs.writeFile(path.join(legacy,'settings.json'),'synthetic legacy sentinel');
  const status=async(...args)=>JSON.parse((await exec(process.execPath,[path.join(f.app,'control.mjs'),'status',...args],{env:f.env,windowsHide:true})).stdout);
  assert.equal((await status()).data,path.join(f.local,'DLNA Video Server'));

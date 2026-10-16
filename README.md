@@ -2,7 +2,7 @@
 
 Windows PC上の録画・動画を、家庭内LANのテレビ・レコーダー・VLCで見るためのソフトウェアです。**サーバー自体に録画・チューナー制御機能はありません。** 適法に利用できる平文メディアを扱い、DRM・DTCP-IP・放送の暗号化を解除する機能は提供しません。
 
-**[最新版のダウンロード](https://github.com/saburahu/pt3-recording-server/releases/latest)** → AssetsのWindows ZIPを選びます。`Source code (zip)` は利用者向け配布版ではありません。
+**[最新版のダウンロード](https://github.com/saburahu/dlna-video-server/releases/latest)** → AssetsのWindows ZIPを選びます。`Source code (zip)` は利用者向け配布版ではありません。
 
 ## できること・必要なもの
 
@@ -35,7 +35,7 @@ v0.2.3では端末探索失敗後の自動復旧を改善しました。v0.2.0 Z
 | 開始が遅い・タイムバーなし・Seek不可 | [PCR索引とSeek](docs/TROUBLESHOOTING.md#pcr索引とseek) |
 | FFmpegが認識されない | [FFmpegの確認](docs/FFMPEG.md#認識されないとき) |
 | 更新・移行・削除をしたい | [バックアップと更新](docs/UPDATE.md) |
-| 不具合を報告したい | [ログの採り方](docs/LOGS.md) → [Issues](https://github.com/saburahu/pt3-recording-server/issues/new/choose) |
+| 不具合を報告したい | [ログの採り方](docs/LOGS.md) → [Issues](https://github.com/saburahu/dlna-video-server/issues/new/choose) |
 
 **信頼できる家庭内LAN専用です。インターネットへポートを開放しないでください。** メディア閲覧に利用者別認証やTLSはありません。[セキュリティ](docs/SECURITY.md)
 
@@ -45,3 +45,5 @@ v0.2.3では端末探索失敗後の自動復旧を改善しました。v0.2.0 Z
 v0.2.3の端末探索復旧については[詳しい説明](docs/CLIENT-DISCOVERY.md)を参照してください。既存の設定・UDN・catalog・PCR索引は保持します。
 
 名称変更前からの更新と内部名称の維持については [名称変更・互換性](docs/BRANDING.md) を参照してください。
+
+TVから見えない場合はDiagnose.cmdを実行してください。Windowsの現在のネットワーク・実行パス・受信規則を読み取り診断し、設定変更は行いません。詳細は [ファイアウォール診断](docs/FIREWALL.md) を参照してください。

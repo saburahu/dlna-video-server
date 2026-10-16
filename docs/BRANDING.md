@@ -10,4 +10,4 @@ v0.2.3の製品名は DLNA Video Server です。バージョン番号と再生�
 
 内部の `PT3_*` 環境変数、`X-PT3-Management` ヘッダー、npm識別子 `pt3-recording-server`、API・設定キーは維持します。既存のカスタムパス、過去のタグ・Release・ZIP名、調査記録、旧公開準備文書、ライセンス本文は歴史的記録として旧名称が残ります。Audit-cache.cmdは配布フォルダ内のruntimeを使い、旧インストール先は自動探索しません。
 
-PrivateはNode.js／FFmpeg同梱・LAN管理、PublicはNode.js同梱・FFmpeg別配置・localhost管理です。今回GitHub Releaseとタグは変更しません。
+PrivateはNode.js／FFmpeg同梱・LAN管理、PublicはNode.js同梱・FFmpeg別配置・localhost管理です。新名称Releaseは旧Release・タグを上書きせず追加します。リポジトリも新名称へ変更し、旧URLのリダイレクトと過去の履歴を保持します。

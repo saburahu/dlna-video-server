@@ -6,7 +6,7 @@ title: ""
 
 <!-- 公開Issueです。録画タイトル・個人名・パス・IP・UDN・認証情報を伏せてください。
 元動画、通信キャプチャ、SQLite、設定全体、PCRキャッシュは添付しないでください。
-ログ採取: https://github.com/saburahu/pt3-recording-server/blob/main/docs/LOGS.md -->
+ログ採取: https://github.com/saburahu/dlna-video-server/blob/main/docs/LOGS.md -->
 
 ### 環境
 
