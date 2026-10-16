@@ -3,8 +3,8 @@ $ErrorActionPreference = 'Stop'
 if (-not $DataDirectory) { $DataDirectory = (Get-Content -Encoding UTF8 -Raw -LiteralPath (Join-Path $PSScriptRoot 'launcher.json') | ConvertFrom-Json).data }
 $sha = [System.Security.Cryptography.SHA256]::Create()
 $tag = ([BitConverter]::ToString($sha.ComputeHash([Text.Encoding]::UTF8.GetBytes([IO.Path]::GetFullPath($DataDirectory).ToLowerInvariant())))).Replace('-','').Substring(0,12)
-# Keep the legacy task/shortcut ID: upgrades and Remove must address the same entry.
-$name = "PT3 DLNA $tag"
+# New registrations use the product name; legacy registrations are not silently changed.
+$name = "DLNA Video Server $tag"
 $shortcut = Join-Path ([Environment]::GetFolderPath('Startup')) "$name.lnk"
 if ($PlanOnly) { [pscustomobject]@{Name=$name;DataDirectory=$DataDirectory;Executable=(Join-Path $PSScriptRoot 'runtime\node.exe');Arguments=('"' + (Join-Path $PSScriptRoot 'control.mjs') + '" start');Logon='Current user';StartupFallback=$shortcut} | ConvertTo-Json; exit }
 if ($Remove) { Unregister-ScheduledTask -TaskName $name -Confirm:$false -ErrorAction SilentlyContinue; if (Test-Path -LiteralPath $shortcut) { Remove-Item -LiteralPath $shortcut }; exit }

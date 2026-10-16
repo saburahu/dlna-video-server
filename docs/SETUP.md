@@ -24,7 +24,7 @@ Node.jsは同梱済みです。別途Node.js、Git、npm、開発ツールを入
 
 | 表示される項目 | 初めて使う場合の入力 |
 |---|---|
-| Data directory | 通常はEnter。表示されたローカルの保存先を使います。既定は `%LOCALAPPDATA%\PT3 Recording Server`。録画そのものではなく設定・catalog・PCR索引等の保存先です。 |
+| Data directory | 通常はEnter。表示されたローカルの保存先を使います。既定は `%LOCALAPPDATA%\DLNA Video Server`。録画そのものではなく設定・catalog・PCR索引等の保存先です。 |
 | HTTP port [19090] | 通常はEnter。ほかのDMSと同じPCで並行利用する場合は空いている1024～65535の番号に変更します。 |
 | LAN IPv4 address | 通常はEnterで自動選択。複数NIC・VPNがある場合は、表示された一覧からテレビと同じLANのIPv4を入力します。テレビのIPではありません。 |
 | FFmpeg bin directory | `ffmpeg.exe` と `ffprobe.exe` があるbinフォルダのフルパス。[選び方](FFMPEG.md)。 |

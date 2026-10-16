@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { execFile } from "node:child_process";
 import { promises as fs } from "node:fs";
 import path from "node:path";
+import os from "node:os";
 import { promisify } from "node:util";
 import { ProfileName, stableId } from "./core.js";
 
@@ -34,7 +35,7 @@ const settingsFile = path.join(dataDir, "settings.json");
 const programsFile = path.join(dataDir, "programs.json");
 
 export let settings: Settings = {
-  friendlyName: "DLNA Video Server", port: 19090, interfaceAddress: "",
+  friendlyName: `DLNA Video Server (${os.hostname()})`, port: 19090, interfaceAddress: "",
   folders: [], profile: "regza-zp2-buffered", udn: `uuid:${randomUUID()}`
 };
 export let programs: Program[] = [];

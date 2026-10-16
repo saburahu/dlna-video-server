@@ -7,7 +7,7 @@ import {fileURLToPath} from 'node:url';
 const option=name=>{const i=process.argv.indexOf(name);return i<0?undefined:process.argv[i+1];};
 const app=path.dirname(fileURLToPath(import.meta.url));
 const launcher=JSON.parse(await fs.readFile(path.join(app,'launcher.json'),'utf8').catch(()=>'{}'));
-const data=path.resolve(option('--data')??launcher.data??path.join(process.env.LOCALAPPDATA??os.homedir(),'PT3 Recording Server'));
+const data=path.resolve(option('--data')??launcher.data??path.join(process.env.LOCALAPPDATA??os.homedir(),'DLNA Video Server'));
 const directory=path.join(data,'pcr-cache');
 const programs=JSON.parse(await fs.readFile(path.join(data,'programs.json'),'utf8').catch(()=>'[]'));
 const sources=new Map();for(const p of programs){if(typeof p.filePath!=='string')continue;const source=path.resolve(p.filePath);for(const name of [source,...(process.platform==='win32'?[source.toLowerCase()]:[])])sources.set(createHash('sha256').update(name).digest('hex'),source);}

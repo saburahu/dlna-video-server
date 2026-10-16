@@ -5,10 +5,8 @@ $node = Join-Path $PSScriptRoot 'runtime\node.exe'
 $control = Join-Path $PSScriptRoot 'control.mjs'
 Write-Host 'DLNA Video Server setup (Windows x64)'
 $existing = Join-Path $PSScriptRoot 'launcher.json'
-# Legacy data directory is intentionally retained for upgrade compatibility.
-$dataDefault = Join-Path $env:LOCALAPPDATA 'PT3 Recording Server'
-if (Test-Path -LiteralPath $existing) { # Legacy data directory is intentionally retained for upgrade compatibility.
-$dataDefault = (Get-Content -Encoding UTF8 -Raw -LiteralPath $existing | ConvertFrom-Json).data }
+$dataDefault = Join-Path $env:LOCALAPPDATA 'DLNA Video Server'
+if (Test-Path -LiteralPath $existing) { $dataDefault = (Get-Content -Encoding UTF8 -Raw -LiteralPath $existing | ConvertFrom-Json).data }
 $data = Read-Host "Data directory [$dataDefault]"
 if (-not $data) { $data = $dataDefault }
 $port = Read-Host 'HTTP port [19090]'
@@ -42,7 +40,7 @@ if (-not $settingsExists) {
     if ($folders) { $cli += @('--folders', $folders) }
   }
 }
-$name = Read-Host 'Server name shown on TV (blank = keep existing / DLNA Video Server)'
+$name = Read-Host 'Server name shown on TV (blank = keep existing / DLNA Video Server + PC name)'
 if ($name) { $cli += @('--name', $name) }
 $seconds = Read-Host 'Library refresh interval in seconds (blank = keep existing / 1800)'
 if ($seconds) { $cli += @('--scan-seconds', $seconds) }
