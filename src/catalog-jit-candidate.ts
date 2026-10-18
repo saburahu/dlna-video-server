@@ -6,6 +6,7 @@ import type {ExperimentalEntry} from './experimental-catalog.js';
 import type {ExperimentalJitPolicy} from './experimental-jit.js';
 import type {CapabilitySnapshot} from './playback-shadow.js';
 import {jitSourceCapabilities,LEGACY_VIDEO_DECODERS} from './jit-source-support.js';
+import {wmaInputAllowed} from './wma-input-scope.js';
 
 /** Pure metadata admission; cadence is checked by the existing runtime, never guessed from extension. */
 export function catalogJitCandidate(entry:ExperimentalEntry,p:ExperimentalJitPolicy,cap:CapabilitySnapshot){
@@ -26,9 +27,7 @@ export function catalogJitCandidate(entry:ExperimentalEntry,p:ExperimentalJitPol
   const evidence=observations.find(o=>o.profileId===profile.id&&o.outcome==='success'&&o.framing===profile.transport.value.framing)?.evidence;
   const trial=matchingJitTrial(p.clientTrials,cap,profile);
   if(trial?.automaticEvidence&&['avi','asf','ogg'].includes(source.transport.container)&&!p.automaticClients?.legacyInputs)return;
-  // Only decoded WMA v2 timeline handling is currently validated. Other WMA
-  // decoder families remain excluded until their delay/layout is tested.
-  if(trial?.automaticEvidence?.inputPolicy==='jit-legacy-inputs-v1'&&/^wma/.test(source.audio?.codec??'')&&(source.audio?.codec!=='wmav2'||p.automaticClients?.wmaInputs!=='source-clock-v1'))return;
+  if(trial?.automaticEvidence?.inputPolicy==='jit-legacy-inputs-v1'&&!wmaInputAllowed(source.audio?.codec??'',Number(audio?.sample_rate),audio?.channels,audio?.channel_layout,p.automaticClients?.wmaInputs,source.video.codec))return;
   if(trial&&!trial.containers.includes(source.transport.container))return;
   if(!evidence&&!trial)return;
   const target=trial?trialProfile(profile,trial):{...profile,video:{...profile.video,evidence:evidence!},audio:{...profile.audio,evidence:evidence!},transport:{...profile.transport,evidence:evidence!}};

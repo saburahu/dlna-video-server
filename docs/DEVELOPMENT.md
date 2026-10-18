@@ -30,3 +30,7 @@ ZIPはpackaging/archive.ps1で作成し、全内容を再展開してmanifestの
 ## CI
 
 必要に応じWindows runnerでnpm ci/typecheck/test/build/auditを実行します。FFmpegを使わないskip試験だけで再生互換性を保証しません。録画・catalog・診断ログをCIへ渡さず、CIのartifact uploadも既定で行いません。現候補には自動Release workflowはありません。
+
+## 限定2音声の合成HTTP回帰
+
+`npm run verify:dual-audio` はbuild後に実行します。`PT3_FFMPEG` と `PT3_FFPROBE` を別配置の実行ファイルへ指定してください。テストパターンと440/880Hzの2音声MP4/MKVだけを新しい一時領域へ生成し、AVC/MPEG-2、全編短尺EOF、途中Seek、個体未許可の1音声fallback、PID/PMT/PCR/TTS、独立時計、停止とcleanupを確認します。SSDP広告・TV再生命令・実データの参照は行わず、結果は一時領域へ保持します。実機成功の代わりにはしません。

@@ -62,21 +62,35 @@ export async function seekCheckpoints(source:string,minimumTicks:number,policyFi
  return result;
 }
 export interface JitSeekPlan {requested:number;anchor:SeekCheckpoint;firstVideoTicks:number;audioTrimTicks:number;minimumTicks:number;policyFingerprint:string;preRollSeconds:number;indexFallback?:string}
-export async function resolveJitSeek(source:string,cache:SeekCache,requested:number,signal?:AbortSignal){assert.ok(requested>=0&&requested<cache.duration);assert.ok((cache.scannedThrough??cache.duration)>requested,'Seek exceeds validated checkpoint coverage');const target=Math.ceil(requested*90000);let anchor=cache.timestampSource==='decoded'?cache.checkpoints[0]:cache.checkpoints.filter(p=>p.pts<=target).at(-1)??cache.checkpoints[0];let last=anchor.lastRetainedTimestamp,firstVideoTicks:number|undefined,indexFallback:string|undefined,anchorFound=cache.timestampSource==='decoded';
+/** A valid container NPT need not have a usable video picture. This is an
+ * unsupported temporal interval, not an encoder/server failure. Never rewind,
+ * duplicate the last picture, or infer display duration from nominal fps. */
+export class JitSeekUnavailableError extends Error {
+ readonly code='jit-seek-no-video-picture';
+ constructor(readonly requested:number,readonly lastPicture?:{pts:number;duration:number}){super('No retained picture at or after requested time');this.name='JitSeekUnavailableError';}
+}
+/** OP10 advertises time seeking: an unavailable temporal range is416, not the
+ *406 used for an unsupported DLNA operation. Without an explicit time request
+ *and observed source picture evidence, retain a preparation failure (503).
+ *Never invent a byte Content-Range for this time-only, generated resource. */
+export function jitSeekFailureStatus(error:unknown,timeSeekRequested:boolean):416|503{
+ return timeSeekRequested&&error instanceof JitSeekUnavailableError&&error.lastPicture!==undefined?416:503;
+}
+export async function resolveJitSeek(source:string,cache:SeekCache,requested:number,signal?:AbortSignal){assert.ok(requested>=0&&requested<cache.duration);assert.ok((cache.scannedThrough??cache.duration)>requested,'Seek exceeds validated checkpoint coverage');const target=Math.ceil(requested*90000);let anchor=cache.timestampSource==='decoded'?cache.checkpoints[0]:cache.checkpoints.filter(p=>p.pts<=target).at(-1)??cache.checkpoints[0];let last=anchor.lastRetainedTimestamp,firstVideoTicks:number|undefined,indexFallback:string|undefined,lastPicture:{pts:number;duration:number}|undefined,anchorFound=cache.timestampSource==='decoded';
  // Ambiguous packet timelines require decoding from the beginning: FFmpeg's best-effort
  // timestamp fault counters reset on decoder restart. A later keyframe alone cannot
  // reproduce those counters. Read the validated compact timeline, then pre-roll from 0.
- for await(const p of cache.timestampSource==='decoded'?readPictures(cache.decodedTimeline!.path):packetPictures(source,`${Math.max(0,anchor.pts/90000-.001)}%${Math.min(cache.duration,requested+3)}`,signal)){signal?.throwIfAborted();if(p.pts<anchor.pts)continue;if(p.pts===anchor.pts)anchorFound=true;if(!anchorFound)break;const pts=cache.experimentalClock?reconstructTimestamp(p.pts,cache.experimentalClock).pts:p.pts;const keep=last===undefined||pts-last>=cache.minimumTicks;if(keep){last=pts;if(pts>=target){firstVideoTicks=pts;break;}}}
+ for await(const p of cache.timestampSource==='decoded'?readPictures(cache.decodedTimeline!.path):packetPictures(source,`${Math.max(0,anchor.pts/90000-.001)}%${Math.min(cache.duration,requested+3)}`,signal)){signal?.throwIfAborted();lastPicture={pts:p.pts,duration:p.duration};if(p.pts<anchor.pts)continue;if(p.pts===anchor.pts)anchorFound=true;if(!anchorFound)break;const pts=cache.experimentalClock?reconstructTimestamp(p.pts,cache.experimentalClock).pts:p.pts;const keep=last===undefined||pts-last>=cache.minimumTicks;if(keep){last=pts;if(pts>=target){firstVideoTicks=pts;break;}}}
  if(firstVideoTicks===undefined&&cache.timestampSource!=='decoded'){
   // Some old ASF/AVI indexes return EOF for an otherwise valid timestamp.
   // Replay the original packet sequence and greedy state from its first anchor;
   // pre-roll the encoder from the same point. No sorting/repair/clock relaxation.
   anchor=cache.checkpoints[0];last=anchor.lastRetainedTimestamp;
   for await(const p of packetPictures(source,`%${Math.min(cache.duration,requested+3)}`,signal)){
-   if(p.pts<anchor.pts)continue;const pts=cache.experimentalClock?reconstructTimestamp(p.pts,cache.experimentalClock).pts:p.pts;
+   lastPicture={pts:p.pts,duration:p.duration};if(p.pts<anchor.pts)continue;const pts=cache.experimentalClock?reconstructTimestamp(p.pts,cache.experimentalClock).pts:p.pts;
    if(last===undefined||pts-last>=cache.minimumTicks){last=pts;if(pts>=target){firstVideoTicks=pts;break;}}
   }
   indexFallback='sequential packet scan and decoder pre-roll after missing indexed anchor';
  }
- assert.ok(firstVideoTicks!==undefined,'No retained picture after requested time');return {requested,anchor,firstVideoTicks,...(indexFallback?{indexFallback}:{}),audioTrimTicks:Math.ceil(target/1920)*1920,minimumTicks:cache.minimumTicks,policyFingerprint:cache.policyFingerprint,preRollSeconds:firstVideoTicks/90000-anchor.pts/90000} satisfies JitSeekPlan;
+ if(firstVideoTicks===undefined)throw new JitSeekUnavailableError(requested,lastPicture);return {requested,anchor,firstVideoTicks,...(indexFallback?{indexFallback}:{}),audioTrimTicks:Math.ceil(target/1920)*1920,minimumTicks:cache.minimumTicks,policyFingerprint:cache.policyFingerprint,preRollSeconds:firstVideoTicks/90000-anchor.pts/90000} satisfies JitSeekPlan;
 }

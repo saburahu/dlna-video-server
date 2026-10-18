@@ -20,6 +20,10 @@ export function parseTimeSeek(header: string, duration: number) {
     throw new RangeError('Unsatisfiable TimeSeekRange');
   return { start, end: Math.min(duration, end) };
 }
+/** Parsing failures are not decoder failures or an unsupported seek operation. */
+export function timeSeekErrorStatus(error:unknown):400|416 {
+  return error instanceof RangeError&&error.message==='Unsatisfiable TimeSeekRange'?416:400;
+}
 
 // Use unwrapped PCR, not the modulo ATS header, for the NPT clock.
 export function packetTime(index: PcrIndex, packet: number): number {

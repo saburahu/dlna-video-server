@@ -1,4 +1,5 @@
 import test from 'node:test';
+import {once} from 'node:events';
 import assert from 'node:assert/strict';
 import {promises as fs} from 'node:fs';
 import os from 'node:os';
@@ -14,6 +15,7 @@ import {libraryItem,type ExperimentalEntry} from '../src/experimental-catalog.js
 import {catalogJitCandidate} from '../src/catalog-jit-candidate.js';
 import {jitRecipeFingerprint} from '../src/jit-client-trial.js';
 import {matchingJitTrial} from '../src/jit-client-trial.js';
+import {selectDualAudio} from '../src/jit-dual-audio.js';
 import {admissionIdentity} from '../src/jit-client-admission.js';
 
 const intelUA={'user-agent':'UPnP/1.0 Intel_SDK_for_UPnP_devices/1.2'};
@@ -25,6 +27,26 @@ function endpoint(dixim=false,deviceId='uuid:never-registered',remoteIp='127.0.0
  const features=endpointFamilyFeatures(xml,[dixim?'DiXiM/4.0':'Intel_SDK_for_UPnP_devices/1.2']),c=classifyClientFamily(features.signals),controlUrl=`http://${remoteIp}/cm`;
  return {features,device:{remoteIp,deviceId,descriptionUrl:`http://${remoteIp}/description.xml`,controlUrl,allowEmptySink:true},capability:{remoteIp,deviceId,controlUrl,sink:'',sinkHash:snapshotHash(''),acquiredAt:new Date().toISOString(),origin:'current-read' as const,implementation:{version:FAMILY_VERSION,fingerprint:c.fingerprint,family:c.family}}};
 }
+
+for(const mpeg of [false,true])test(`normal ${mpeg?'MPEG-2':'AVC'} two-audio Browse/GET binding cannot become single or transfer to another client`,async t=>{
+ const dir=await fs.mkdtemp(path.join(os.tmpdir(),'normal-dual-binding-')),file=path.join(dir,'arbitrary.wmv');await fs.writeFile(file,'metadata fixture only');const st=await fs.stat(file);
+ const ep=endpoint(mpeg,'uuid:tested-dual','192.0.2.20'),other=endpoint(mpeg,'uuid:untested-dual','192.0.2.21'),p=policy();p.automaticClients={...p.automaticClients!,priority:'automatic-first',legacyInputs:true,wmaInputs:'source-clock-v2'};p.capabilities=[ep.capability,other.capability];
+ const target=p.policy.profiles[mpeg?1:0],permission={version:'jit-dual-audio-permission-v1' as const,enabled:true,deviceId:ep.capability.deviceId,sinkHash:ep.capability.sinkHash,implementationFingerprint:ep.capability.implementation.fingerprint,targetProfile:target.id,reference:'Human experiment recorded separately'};p.dualAudioPermissions=[permission];
+ const audio=(index:number)=>({index,codec_type:'audio',codec_name:'wmapro',sample_rate:'48000',channels:2,channel_layout:'stereo',time_base:'1/1000',start_time:'0.000000',duration:'100.000000'});
+ const probe={format:{format_name:'asf',duration:'100.000000'},executionDecoders:['wmv3','wmapro'],streams:[audio(0),audio(1),{index:2,codec_type:'video',codec_name:'wmv3',profile:'Main',width:704,height:396,pix_fmt:'yuv420p',avg_frame_rate:'24000/1001'}]};
+ const entry:ExperimentalEntry={objectId:'experimental/catalog-item/0123456789abcdef0123456789abcdef',filename:path.basename(file),fingerprint:{path:file,size:st.size,mtimeMs:st.mtimeMs},sourceState:'cached',decisions:[],lightweightProbe:probe};let inspected=probe;const configs:any[]=[],events:any[]=[];
+ await fs.writeFile(path.join(dir,'jit.json'),JSON.stringify(p));
+ const service=createExperimentalJit(dir,(category,detail)=>events.push({category,detail}),{discover:async ip=>[ep,other].filter(e=>e.device.remoteIp===ip),devices:async()=>[],capability:async d=>[ep,other].find(e=>e.device.deviceId===d.deviceId)!.capability,inspect:async()=>({probe:inspected,cacheHit:true}),timing:async(_d,source,timing)=>({version:'fixture',key:'original',sourceFingerprint:source,targetTimingFingerprint:snapshotHash(JSON.stringify(timing)),mode:'original',assessment:{},cacheHit:true}),createRuntime:async(config,input)=>{configs.push({config,input});return {server:createServer(),status:()=>({state:'stopped',active:false,executors:0,maxConcurrentExecutors:1,cancellations:0,lastResult:undefined}),stop:async()=>{},handle:async(_req,res)=>{res.end(config.dualAudio?'two':'one');}};}});
+ const headers=(e=ep)=>({'x-pt3-jit-verify':snapshotHash(JSON.stringify(p)),'x-pt3-jit-device':e.device.deviceId,'User-Agent':mpeg?bdrUA['user-agent']:intelUA['user-agent']});let base='';
+ const server=createServer((req,res)=>void(async()=>{if(req.url?.startsWith('/browse')){await service.observeClient(req,mpeg?bdrBrowse:'');await service.automaticIdle();const e=await service.decorate(entry,await service.client(req));res.end(JSON.stringify(e.jit));}else await service.deliver(req,res,entry);})());server.listen(0,'127.0.0.1');await once(server,'listening');base='http://127.0.0.1:'+(server.address()as any).port;t.after(async()=>{server.closeAllConnections();await new Promise<void>(r=>server.close(()=>r()));await service.closeAutomatic();await fs.rm(dir,{recursive:true,force:true});});
+ const resource=await fetch(base+'/browse',{headers:headers()}).then(r=>r.json()) as any;assert.ok(resource.clientBinding);const url=base+'/?clientBinding='+resource.clientBinding;
+ assert.equal(await fetch(url,{headers:headers()}).then(r=>r.text()),'two');assert.deepEqual(configs[0].config.dualAudio.audioPids,mpeg?[321,322]:[257,258]);assert.deepEqual(configs[0].input.dualAudioPermission,permission);
+ await fetch(base+'/browse',{headers:headers(other)});assert.equal((await fetch(url,{headers:headers(other)})).status,503);
+ inspected={...probe,streams:[probe.streams[0],{...probe.streams[1],codec_name:'wmav2'},probe.streams[2]]};assert.equal((await fetch(url,{headers:headers()})).status,503,'Fresh metadata cannot change issued two-audio URL');inspected=probe;
+ p.dualAudioPermissions=[];await new Promise(r=>setTimeout(r,5));await fs.writeFile(path.join(dir,'jit.json'),JSON.stringify(p));assert.equal((await fetch(url,{headers:headers()})).status,503,'Revoked permission invalidates old URL');
+ const single=await fetch(base+'/browse',{headers:headers()}).then(r=>r.json()) as any;assert.notEqual(single.clientBinding,resource.clientBinding);assert.equal(await fetch(base+'/?clientBinding='+single.clientBinding,{headers:headers()}).then(r=>r.text()),'one');assert.equal(configs.at(-1).config.dualAudio,undefined);
+ assert.ok(events.some(e=>e.category==='EXPERIMENTAL_JIT_STAGE'&&e.detail.stage==='DUAL_AUDIO_SELECTION'&&e.detail.detail.reason==='receiver-target-not-enrolled-for-dual-audio'));assert.equal(selectDualAudio(undefined,ep.capability,probe,target.id,mpeg,true).plan,undefined);
+});
 test('unknown identities select empirically pinned recipes by independent endpoint and request features, never names or UDN bytes',()=>{
  for(const dixim of [false,true])for(const id of ['uuid:random-one','uuid:entirely-different']){
   const ep=endpoint(dixim,id,'10.2.3.4'),requests=requestFamilyFeatures(dixim?bdrUA:intelUA,dixim?bdrBrowse:'');
@@ -154,4 +176,13 @@ test('automatic legacy input admission inspects actual container/codec independe
 test('input publication changes preserve identity/output binding and unchanged scans do not change the policy revision',async t=>{
  const dir=await fs.mkdtemp(path.join(os.tmpdir(),'auto-input-policy-'));t.after(()=>fs.rm(dir,{recursive:true,force:true}));const ep=endpoint(),p=policy(),m=createAutomaticJitClients(dir,()=>{},async()=>[ep]);await m.observe('127.0.0.1',intelUA,'',true);await m.idle();const before=m.resolve(p,'127.0.0.1');p.automaticClients!.legacyInputs=true;const after=m.resolve(p,'127.0.0.1');assert.equal(before.binding,after.binding,'MP4/MKV resources retain the same output/identity contract');assert.equal(after.trial?.automaticEvidence?.inputPolicy,'jit-legacy-inputs-v1');assert.ok(after.trial?.containers.includes('asf'));
  const file=path.join(dir,'jit.json');p.automaticClients!.legacyInputs=false;await fs.writeFile(file,JSON.stringify(p));let inspections=0;const service=createExperimentalJit(dir,()=>{},{inspect:async()=>{inspections++;throw Error('No inspection during revision/Browse');}});const initial=await service.revision();p.automaticClients!.legacyInputs=true;await new Promise(r=>setTimeout(r,5));await fs.writeFile(file,JSON.stringify(p));const changed=await service.revision();assert.ok(changed>initial);await new Promise(r=>setTimeout(r,5));await fs.writeFile(file,JSON.stringify(p));assert.equal(await service.revision(),changed);assert.equal(inspections,0);
+});
+
+test('explicit extended WMA input scope selects both established targets without broadening identity or video admission',()=>{
+ for(const dixim of [false,true])for(const [codec,rate,channels,layout]of [['wmapro',48000,2,'stereo'],['wmapro',44100,2,'stereo']]as const){
+  const ep=endpoint(dixim),p=policy();p.automaticClients!.legacyInputs=true;p.automaticClients!.wmaInputs='source-clock-v2';const selected=automaticClientSelection([ep],requestFamilyFeatures(dixim?bdrUA:intelUA,dixim?bdrBrowse:''),p);assert.ok(selected.trial);p.targetProfile=selected.profile!.id;p.clientTrials=[selected.trial];
+  const probe={format:{duration:'100',format_name:'asf'},executionDecoders:['wmv3',codec],streams:[{codec_type:'video',codec_name:'wmv3',width:640,height:480,pix_fmt:'yuv420p',r_frame_rate:'24000/1001'},{codec_type:'audio',codec_name:codec,channels,channel_layout:layout,sample_rate:String(rate)}]};const entry:ExperimentalEntry={objectId:'experimental/catalog-item/'+'e'.repeat(32),filename:'arbitrary.wmv',fingerprint:{path:'X:/synthetic',size:100,mtimeMs:1},sourceState:'unanalysed',decisions:[],lightweightProbe:probe};
+  assert.equal(catalogJitCandidate(entry,p,ep.capability)?.execution.transport.profileName,dixim?'MPEG_TS_JP_T':'AVC_TS_JP_AAC_T');p.automaticClients!.wmaInputs='source-clock-v1';assert.equal(catalogJitCandidate(entry,p,ep.capability),undefined);p.automaticClients!.wmaInputs='source-clock-v2';
+  for(const bad of [{...probe,protection:'encrypted ASF'}, {...probe,streams:[{...probe.streams[0],pix_fmt:undefined},probe.streams[1]]},{...probe,streams:[{...probe.streams[0],codec_name:'vc1'},probe.streams[1]]},{...probe,streams:[probe.streams[0],{...probe.streams[1],codec_name:'wmav1'}]}])assert.equal(catalogJitCandidate({...entry,lightweightProbe:bad},p,ep.capability),undefined);
+ }
 });

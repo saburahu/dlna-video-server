@@ -29,8 +29,8 @@ export function validateJitSegmentEnd(stats:JitStats,start:number,end:number,sou
 
 /** Header-level track endpoint. Unknown remains unknown; do not manufacture
  * silence to extend a naturally shorter audio track to container duration. */
-export function sourceAudioEndpoint(probe:any):number|undefined{
- const s=probe.streams?.find((s:any)=>s.codec_type==='audio');if(!s)return;
+export function sourceAudioEndpoint(probe:any,audioOrdinal=0):number|undefined{
+ const s=probe.streams?.filter((s:any)=>s.codec_type==='audio')[audioOrdinal];if(!s)return;
  const duration=Number(s.duration),start=Number(s.start_time??0);
  if(Number.isFinite(duration)&&duration>0&&Number.isFinite(start))return start+duration;
  const tag=Object.entries(s.tags??{}).find(([k])=>/^DURATION(?:-|$)/i.test(k))?.[1];

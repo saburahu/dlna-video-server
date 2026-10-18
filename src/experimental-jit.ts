@@ -1,3 +1,4 @@
+import {selectDualAudio,dualAudioBinding,type DualAudioPermission} from './jit-dual-audio.js';
 import {createReceiverCompatibility} from './receiver-compatibility.js';
 import {receiverCfrTrial,receiverCfrBinding,type ReceiverCfrTrial} from './receiver-cfr-trial.js';
 import {isMpeg2JitTarget,MPEG2_JIT_PROTOCOL,MPEG2_JIT_FEATURES,mpeg2Seek} from './mpeg2-jit-target.js';
@@ -13,8 +14,8 @@ import { readShadowJson, saveShadowJson, shadowDirectory, acquireCapability, typ
 import { execute, ffprobe,ffmpeg } from './prepare-executor.js';
 import { createJitServer, JIT_FEATURES, JIT_PROTOCOL } from './jit-server.js';
 import { minimumRemovalTicks } from './cadence-normalization.js';
-import { seekCheckpoints, resolveJitSeek } from './jit-seek.js';
-import { parseTimeSeek } from './time-seek.js';
+import { seekCheckpoints, resolveJitSeek, JitSeekUnavailableError, jitSeekFailureStatus } from './jit-seek.js';
+import { parseTimeSeek, timeSeekErrorStatus } from './time-seek.js';
 import {catalogJitCandidate} from './catalog-jit-candidate.js';
 import {chooseJitTiming,rejectJitTiming,type JitTimingMode} from './jit-timing-policy.js';
 import {installedJitDecoders} from './jit-source-support.js';
@@ -34,7 +35,8 @@ export interface ExperimentalJitPolicy {
   timingPolicy?:JitTimingMode;
   clientTrials?:JitClientTrial[];
   receiverCfrTrials?:ReceiverCfrTrial[];
-  automaticClients?:{version:typeof AUTOMATIC_CLIENT_VERSION;enabled:boolean;priority?:'automatic-first'|'individual-first';automaticOnlyDeviceIds?:string[];legacyInputs?:boolean;wmaInputs?:'source-clock-v1'};
+  dualAudioPermissions?:DualAudioPermission[];
+  automaticClients?:{version:typeof AUTOMATIC_CLIENT_VERSION;enabled:boolean;priority?:'automatic-first'|'individual-first';automaticOnlyDeviceIds?:string[];legacyInputs?:boolean;wmaInputs?:import('./wma-input-scope.js').WmaInputPolicy};
   clientAdmissions?:ClientAdmissions;
   /** Bounded capacity; preparation, playback and replacement cleanup share a slot. */
   maxConcurrentSessions?:1|2;
@@ -145,7 +147,7 @@ export function createExperimentalJit(directory: string, trace: JitTrace, overri
       v.maxDpbFrames < 1 || v.maxBitrate < 10e6 || v.maxCpbBits < 10e6 || t.framing !== 'jp-content-packet' || t.seek !== 'time' || t.profileName !== 'AVC_TS_JP_AAC_T')) return;
     if (!trial&&!parseSinkProtocolInfo(cap.sink).some(s=>s.protocol==='http-get'&&s.mime===profile.transport.value.mime&&s.profileName===profile.transport.value.profileName)) return;
     if (!trial&&!p.policy.observations.some(o => o.deviceId === cap.deviceId && o.sinkHash === cap.sinkHash && o.observation.profileId === p.targetProfile && o.observation.outcome === 'success' && o.observation.framing === 'jp-content-packet')) return;
-    return { protocolInfo: isMpeg2JitTarget(profile)?MPEG2_JIT_PROTOCOL:JIT_PROTOCOL, durationSeconds: item?.durationSeconds??admitted!.duration, targetProfile: p.targetProfile,...(p._admission?.binding?{clientBinding:receiverCfrBinding(p._admission.binding,receiverCfrTrial(p._admission?.binding?p.receiverCfrTrials:undefined,cap,entry.lightweightProbe,!isMpeg2JitTarget(profile)))}:{}) };
+    return { protocolInfo: isMpeg2JitTarget(profile)?MPEG2_JIT_PROTOCOL:JIT_PROTOCOL, durationSeconds: item?.durationSeconds??admitted!.duration, targetProfile: p.targetProfile,...(p._admission?.binding?{clientBinding:dualAudioBinding(receiverCfrBinding(p._admission.binding,receiverCfrTrial(p._admission?.binding?p.receiverCfrTrials:undefined,cap,entry.lightweightProbe,!isMpeg2JitTarget(profile))),selectDualAudio(p.dualAudioPermissions,cap,entry.lightweightProbe,p.targetProfile,isMpeg2JitTarget(profile),!!p._admission?.binding).plan)}:{}) };
   }
   return {
     receive,
@@ -207,13 +209,13 @@ export function createExperimentalJit(directory: string, trace: JitTrace, overri
         const bindingParameter=new URL(req.url??'/', 'http://localhost').searchParams.get('clientBinding');
         const boundCap=p.capabilities.find(c=>normalizedIp(c.remoteIp)===remote);
         const boundProfile=p.policy.profiles.find(v=>v.id===p.targetProfile)!;
-        const expectedBinding=receiverCfrBinding(p._admission?.binding,receiverCfrTrial(p._admission?.binding?p.receiverCfrTrials:undefined,boundCap,entry.lightweightProbe,!isMpeg2JitTarget(boundProfile)));
+        const expectedBinding=dualAudioBinding(receiverCfrBinding(p._admission?.binding,receiverCfrTrial(p._admission?.binding?p.receiverCfrTrials:undefined,boundCap,entry.lightweightProbe,!isMpeg2JitTarget(boundProfile))),selectDualAudio(p.dualAudioPermissions,boundCap,entry.lightweightProbe,p.targetProfile,isMpeg2JitTarget(boundProfile),!!p._admission?.binding).plan);
         if(advertised.clientBinding||bindingParameter)assert.ok(p._admission?.binding&&bindingParameter===expectedBinding&&advertised.clientBinding===expectedBinding,'Missing, stale or different-client Browse binding');
         const current = await fs.stat(entry.fingerprint.path);
         assert.ok(current.isFile() && matchingFingerprint(entry.fingerprint, { path: entry.fingerprint.path, size: current.size, mtimeMs: current.mtimeMs }), 'Source fingerprint changed');
         if (req.headers.range) { res.writeHead(400); res.end('Byte Range unsupported; use TimeSeekRange'); return; }
         if (req.method !== 'GET' && req.method !== 'HEAD') { res.writeHead(405); res.end(); return; }
-        if(req.headers['timeseekrange.dlna.org'])parseTimeSeek(String(req.headers['timeseekrange.dlna.org']),resource(entry,remote,p)!.durationSeconds);
+        if(req.headers['timeseekrange.dlna.org']){try{parseTimeSeek(String(req.headers['timeseekrange.dlna.org']),resource(entry,remote,p)!.durationSeconds);}catch(e){const status=timeSeekErrorStatus(e);trace('EXPERIMENTAL_JIT_SEEK_REJECTED',{status,reason:String(e)});res.writeHead(status,{'Content-Length':0,'Cache-Control':'no-store'});res.end();return;}}
         if(req.method==='GET'){
           const limit=p.maxConcurrentSessions??2;
           assert.ok(limit===1||limit===2,'JIT maxConcurrentSessions must be 1 or 2');
@@ -241,7 +243,9 @@ export function createExperimentalJit(directory: string, trace: JitTrace, overri
           stage('CATALOG_DECISION_CONFIRMED',{strategy:actual.execution.strategy,transforms:actual.execution.transforms,targetProfile:p.targetProfile,verification:actual.verification});
         }
         const receiverCfr=receiverCfrTrial(p._admission?.binding?p.receiverCfrTrials:undefined,cap,inspected.probe,!isMpeg2JitTarget(selected.profile));
-        assert.equal(receiverCfrBinding(p._admission?.binding,receiverCfr),advertised.clientBinding,'Receiver CFR admission changed between Browse and GET');
+        const dual=selectDualAudio(p.dualAudioPermissions,cap,inspected.probe,p.targetProfile,isMpeg2JitTarget(selected.profile),!!p._admission?.binding);
+        assert.equal(dualAudioBinding(receiverCfrBinding(p._admission?.binding,receiverCfr),dual.plan),advertised.clientBinding,'Receiver audio/CFR admission changed between Browse and GET');
+        stage('DUAL_AUDIO_SELECTION',{plan:dual.plan,reason:dual.reason,deviceId:cap.deviceId,target:p.targetProfile,otherReceiversUnchanged:true});
         stage('RECEIVER_CFR_TRIAL',{receiverCfr,deviceId:cap.deviceId,scope:'explicit individual trial; original source selection, audio and target recipe retained'});
         stage('CURRENT_CAPABILITY', { deviceId: cap.deviceId, sinkHash: cap.sinkHash });
         if (res.destroyed) return;
@@ -270,7 +274,7 @@ export function createExperimentalJit(directory: string, trace: JitTrace, overri
         preparing.add(remote);
         let runtime: Runtime;
         try {
-          const key = snapshotHash(JSON.stringify({ fingerprint: entry.fingerprint, policy: p.policy, target: p.targetProfile, deviceId:cap.deviceId,controlUrl:cap.controlUrl, receiverCfr, clientTrial:matchingJitTrial(p.clientTrials,cap,p.policy.profiles.find(v=>v.id===p.targetProfile)!), sinkHash: cap.sinkHash,...(timingMode!=='original'?{timingChoice:{key:chosen.key,clock:chosen.clock}}:{}) }));
+          const key = snapshotHash(JSON.stringify({ fingerprint: entry.fingerprint, policy: p.policy, target: p.targetProfile, deviceId:cap.deviceId,controlUrl:cap.controlUrl, receiverCfr, dualAudio:dual.plan, clientTrial:matchingJitTrial(p.clientTrials,cap,p.policy.profiles.find(v=>v.id===p.targetProfile)!), sinkHash: cap.sinkHash,...(timingMode!=='original'?{timingChoice:{key:chosen.key,clock:chosen.clock}}:{}) }));
           for (const [id, old] of sessions) {
             if (id.startsWith(remote + '/') && (id !== sessionId || old.key !== key)) { await old.runtime.stop(); sessions.delete(id); }
             else if (!requests.has(id.slice(0,id.indexOf('/'))) && !old.runtime.status().active && id !== sessionId) sessions.delete(id);
@@ -278,7 +282,8 @@ export function createExperimentalJit(directory: string, trace: JitTrace, overri
           const existing = sessions.get(sessionId);
           if (existing) runtime = existing.runtime;
           else {
-            runtime = await deps.createRuntime({ source: entry.fingerprint.path, reference: '', address: '127.0.0.1', port: 19090, seconds: 150, durationMode:'source', startupSeconds: 2.2, timeSeek: true, logDirectory: path.join(directory, 'jit-logs',snapshotHash(sessionId)), audioCacheDirectory:path.join(directory,'jit-logs','audio-end-cache'),...(receiverCfr?{receiverCfr}:{}),...(chosen.clock?{experimentalClock:chosen.clock,encoderNominalRate:chosen.encoderNominalRate}:{}) }, {
+            runtime = await deps.createRuntime({ source: entry.fingerprint.path, reference: '', address: '127.0.0.1', port: 19090, seconds: 150, durationMode:'source', startupSeconds: 2.2, timeSeek: true, logDirectory: path.join(directory, 'jit-logs',snapshotHash(sessionId)), audioCacheDirectory:path.join(directory,'jit-logs','audio-end-cache'),...(dual.plan?{dualAudio:dual.plan}:{}),...(receiverCfr?{receiverCfr}:{}),...(chosen.clock?{experimentalClock:chosen.clock,encoderNominalRate:chosen.encoderNominalRate}:{}) }, {
+              ...(dual.permission&&dual.plan?{dualAudioPermission:dual.permission}:{}),
               clientTrial:matchingJitTrial(p.clientTrials,cap,p.policy.profiles.find(v=>v.id===p.targetProfile)!),
               ...(advertised.clientBinding?{device,acquireCapability:async(d:RegisteredDmp,signal:AbortSignal)=>{
                 const current=await deps.capability(d,signal);
@@ -298,8 +303,8 @@ export function createExperimentalJit(directory: string, trace: JitTrace, overri
         const original = req.url; req.url = '/jit/media.tts';
         try { await runtime.handle(req, res, began,requestId); } finally { req.url = original; }
       } catch (e) {
-        trace(res.destroyed ? 'EXPERIMENTAL_JIT_CANCELLED' : 'EXPERIMENTAL_JIT_ERROR', { sourceId: entry.objectId, error: String(e) });
-        if (!res.headersSent && !res.destroyed) { res.writeHead(503, { 'Content-Length': 0 }); res.end(); } else res.destroy();
+        trace(res.destroyed ? 'EXPERIMENTAL_JIT_CANCELLED' : 'EXPERIMENTAL_JIT_ERROR', { sourceId: entry.objectId, error: String(e),...(e instanceof JitSeekUnavailableError?{seekRejection:{code:e.code,requested:e.requested,lastPicture:e.lastPicture}}:{}) });
+        if (!res.headersSent && !res.destroyed) { res.writeHead(jitSeekFailureStatus(e,typeof req.headers['timeseekrange.dlna.org']==='string'), { 'Content-Length': 0 }); res.end(); } else res.destroy();
       } finally {lease?.finish();}
     }
   };

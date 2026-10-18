@@ -1,10 +1,17 @@
 import test from 'node:test';import assert from 'node:assert/strict';import {promises as fs} from 'node:fs';import path from 'node:path';import os from 'node:os';import {createHash} from 'node:crypto';
 import {checkpointSelection,seekCheckpoints} from '../src/jit-seek.js';import {pictureBytes,IncrementalSelection,FULL_ANALYSIS_VERSION,type PictureRecord} from '../src/full-cadence.js';import {selectCompatiblePictures} from '../src/cadence-normalization.js';import {snapshotHash} from '../src/playback-shadow.js';import {jitArguments} from '../src/jit-stream.js';import {parseTimeSeek} from '../src/time-seek.js';import {JIT_FEATURES} from '../src/jit-server.js';
-import {seekPacketPicture,SEEK_CHECKPOINT_VERSION,resolveJitSeek,packetPictures,decodedPictures} from '../src/jit-seek.js';
+import {seekPacketPicture,SEEK_CHECKPOINT_VERSION,resolveJitSeek,JitSeekUnavailableError,jitSeekFailureStatus,packetPictures,decodedPictures} from '../src/jit-seek.js';
 test('legal unknown packet duration preserves exact VFR PTS and checkpoint selection',()=>{
  const fields=[{pts:'0',duration:'N/A',flags:'K__'},{pts:'4004',duration:'N/A',flags:'___'},{pts:'8008',flags:'___'}];
  const p=fields.map(f=>seekPacketPicture(f,1));assert.deepEqual(p.map(x=>x.pts),[0,4004,8008]);assert.ok(p.every(x=>x.duration===0));assert.equal(checkpointSelection(p,2989)[0].pts,0);
  for(const f of [{pts:'N/A'},{pts:'4',duration:'-1'},{pts:'4',duration:'bad'}])assert.throws(()=>seekPacketPicture(f,1));
+});
+test('time-seek range rejection is416 only with an explicit request and source picture evidence',()=>{
+ const tail=new JitSeekUnavailableError(59,{pts:58*90000,duration:0});
+ assert.equal(jitSeekFailureStatus(tail,true),416);
+ assert.equal(jitSeekFailureStatus(tail,false),503);
+ assert.equal(jitSeekFailureStatus(new JitSeekUnavailableError(59),true),503);
+ assert.equal(jitSeekFailureStatus(new Error('Decoder failed'),true),503);
 });
 function pictures(){let pts=0;return Array.from({length:1000},(_,index)=>{pts+=index%7===0?1502:4504;return {pts,duration:3003,index,key:index%60===0,retained:false};});}
 test('Every keyframe checkpoint restores exact greedy selection, including a dropped anchor',()=>{const p=pictures(),minimum=2989,c=checkpointSelection(p,minimum),expected=selectCompatiblePictures(p.map(q=>q.pts),minimum).retained;for(const anchor of c){let last=anchor.lastRetainedTimestamp;const got=[];for(const q of p.slice(anchor.index)){if(last===undefined||q.pts-last>=minimum){last=q.pts;got.push(q.index);}}assert.deepEqual(got,expected.filter(q=>q.index>=anchor.index).map(q=>q.index));}});
@@ -24,6 +31,7 @@ test('Ambiguous-packet display cache seeks from decoder origin, not a later keyf
   const body={...cache,checksum:snapshotHash(JSON.stringify(cache))};await fs.writeFile(path.join(dir,key+'.json'),JSON.stringify(body));
   const reused=await seekCheckpoints(source,2989,'test',dir,path.join(dir,'absent-analysis'),undefined,undefined,24);assert.equal(reused.timestampSource,'decoded');await assert.rejects(resolveJitSeek(source,reused,30),/coverage/);
   const requested=20,plan=await resolveJitSeek(source,reused,requested),selected=selectCompatiblePictures(p.map(q=>q.pts),2989).retained.find(q=>q.pts>=requested*90000)!;
+  await assert.rejects(resolveJitSeek(source,{...reused,scannedThrough:60},59),(e:any)=>e.name==='JitSeekUnavailableError'&&jitSeekFailureStatus(e,true)===416&&e.code==='jit-seek-no-video-picture'&&e.requested===59&&e.lastPicture.pts===p.at(-1)!.pts&&e.lastPicture.duration===3003,'A shorter video is not rewound or turned into a server failure');
   assert.deepEqual(plan.anchor,JSON.parse(JSON.stringify(cache.checkpoints[0])));assert.equal(plan.firstVideoTicks,selected.pts);
   const args=jitArguments(source,2989,25,plan),vf=args[args.indexOf('-vf')+1];assert.equal(args[args.indexOf('-ss')+1],String(Math.max(0,p[0].pts/90000-.001)));assert.ok(vf.includes(String(plan.firstVideoTicks)));
   const abort=new AbortController();abort.abort();await assert.rejects(resolveJitSeek(source,reused,requested,abort.signal),{name:'AbortError'});

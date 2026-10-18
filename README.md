@@ -1,5 +1,10 @@
 # DLNA Video Server
 
+**mainは次回配布候補です。既存v0.2.3 Release ZIPと同一ではありません。**
+限定2音声の条件は[複数音声](docs/MULTI-AUDIO.md)、WMA自然EOFと一部MP4によるDBRの
+復帰不能報告は[既知の問題](docs/KNOWN-ISSUES.md)を確認してください。
+新しい配布物はまだ発行していません。[次回配布候補](docs/NEXT-RELEASE.md)
+
 Windows PC上の録画・動画を、家庭内LANのテレビ・レコーダー・VLCで見るためのソフトウェアです。**サーバー自体に録画・チューナー制御機能はありません。** 適法に利用できる平文メディアを扱い、DRM・DTCP-IP・放送の暗号化を解除する機能は提供しません。
 
 **[最新版のダウンロード](https://github.com/saburahu/dlna-video-server/releases/latest)** → AssetsのWindows ZIPを選びます。`Source code (zip)` は利用者向け配布版ではありません。

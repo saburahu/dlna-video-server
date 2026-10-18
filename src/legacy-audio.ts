@@ -14,10 +14,11 @@ const VERSION='decoded-audio-end-v4-terminal-evidence';
  * accumulates from its first decoded frame; the resulting endpoint can change
  * with seek pre-roll and is not an independent source endpoint. A broken AVI seek index falls back to a
  * sequential audio-only scan; bounded line processing retains no frame JSON. */
-async function scan(source:string,start:number,signal?:AbortSignal,firstOnly=false,allowRecoveredMp3=false){
+async function scan(source:string,start:number,signal?:AbortSignal,firstOnly=false,allowRecoveredMp3=false,audioOrdinal=0){
+ assert.ok(Number.isSafeInteger(audioOrdinal)&&audioOrdinal>=0);
  signal?.throwIfAborted();
  return new Promise<{start:number;end:number;frames:number;scanStart:number;recovery?:ReturnType<AudioEndpointEvidence['finish']>}>((resolve,reject)=>{
-  const args=['-hide_banner','-nostdin','-copyts',...(start>0?['-ss',String(start)]:[]),'-i',source,'-map','0:a:0','-vn','-af','aresample=48000,asettb=1/48000,ashowinfo',...(firstOnly?['-frames:a','1']:[]),'-f','null','-'];
+  const args=['-hide_banner','-nostdin','-copyts',...(start>0?['-ss',String(start)]:[]),'-i',source,'-map',`0:a:${audioOrdinal}`,'-vn','-af','aresample=48000,asettb=1/48000,ashowinfo',...(firstOnly?['-frames:a','1']:[]),'-f','null','-'];
   const child=spawn(ffmpeg(),args,{windowsHide:true,stdio:['ignore','ignore','pipe']});
   let line='',frames=0,end=-Infinity,last=-Infinity,first:number|undefined,failure:Error|undefined;const evidence=new AudioEndpointEvidence();
   let timer:ReturnType<typeof setTimeout>;
@@ -42,23 +43,23 @@ async function scan(source:string,start:number,signal?:AbortSignal,firstOnly=fal
 }
 /** The ASF stream header may say start=0 although WMA emits its first decoded
  * samples later. Measure one decoded frame without AAC, silence or PTS changes. */
-export async function legacyAudioStart(source:Fingerprint,probe:any,directory:string,signal?:AbortSignal){
- const stream=probe.streams.find((s:any)=>s.codec_type==='audio');assert.ok(stream);signal?.throwIfAborted();
+export async function legacyAudioStart(source:Fingerprint,probe:any,directory:string,signal?:AbortSignal,audioOrdinal=0){
+ const stream=probe.streams.filter((s:any)=>s.codec_type==='audio')[audioOrdinal];assert.ok(stream);signal?.throwIfAborted();
  const before=await fs.stat(source.path);assert.ok(before.size===source.size&&before.mtimeMs===source.mtimeMs,'Stale audio start source');
  const key=snapshotHash(JSON.stringify({source,version:'decoded-audio-end-v3-source-clock-start',stream:stream.index})),file=path.join(directory,key+'.json');
  const cached=await readShadowJson<{key:string;start:number;checksum:string}>(file).catch(()=>undefined);
  if(cached?.key===key&&Number.isFinite(cached.start)&&cached.start>=0&&cached.checksum===snapshotHash(JSON.stringify({key,start:cached.start})))return {start:cached.start,cacheHit:true};
- const result=await scan(source.path,0,signal,true);assert.ok(Number.isFinite(result.start)&&result.start>=0&&result.start<Number(probe.format.duration));
+ const result=await scan(source.path,0,signal,true,false,audioOrdinal);assert.ok(Number.isFinite(result.start)&&result.start>=0&&result.start<Number(probe.format.duration));
  const st=await fs.stat(source.path);assert.ok(st.size===source.size&&st.mtimeMs===source.mtimeMs);signal?.throwIfAborted();
  await saveShadowJson(file,{key,start:result.start,source,version:VERSION,checksum:snapshotHash(JSON.stringify({key,start:result.start}))});return {start:result.start,cacheHit:false};
 }
-export async function legacyAudioEndpoint(source:Fingerprint,probe:any,directory:string,signal?:AbortSignal){
- const duration=Number(probe.format.duration),stream=probe.streams.find((s:any)=>s.codec_type==='audio');
+export async function legacyAudioEndpoint(source:Fingerprint,probe:any,directory:string,signal?:AbortSignal,audioOrdinal=0){
+ const duration=Number(probe.format.duration),stream=probe.streams.filter((s:any)=>s.codec_type==='audio')[audioOrdinal];
  assert.ok(stream&&duration>0);signal?.throwIfAborted();const before=await fs.stat(source.path);assert.ok(before.size===source.size&&before.mtimeMs===source.mtimeMs,'Stale audio endpoint source');const key=snapshotHash(JSON.stringify({source,version:VERSION,stream:stream.index})),file=path.join(directory,key+'.json');
  const cached=await readShadowJson<{key:string;end:number;recovery?:ReturnType<AudioEndpointEvidence['finish']>;checksum:string}>(file).catch(()=>undefined);
  if(cached?.key===key&&Number.isFinite(cached.end)&&cached.end>=0&&cached.checksum===snapshotHash(JSON.stringify({key,end:cached.end,...(cached.recovery?{recovery:cached.recovery}:{})})))return {end:cached.end,recovery:cached.recovery,cacheHit:true};
  const allowRecoveredMp3=stream.codec_name==='mp3';
- let result;try{result=await scan(source.path,Math.max(0,duration-5),signal,false,allowRecoveredMp3);}catch(error){signal?.throwIfAborted();if(duration<=5)throw error;result=await scan(source.path,0,signal,false,allowRecoveredMp3);}
+ let result;try{result=await scan(source.path,Math.max(0,duration-5),signal,false,allowRecoveredMp3,audioOrdinal);}catch(error){signal?.throwIfAborted();if(duration<=5)throw error;result=await scan(source.path,0,signal,false,allowRecoveredMp3,audioOrdinal);}
  assert.ok(Number.isFinite(result.end)&&result.end>=0&&result.end<=duration+1);
  const st=await fs.stat(source.path);assert.ok(st.size===source.size&&st.mtimeMs===source.mtimeMs);signal?.throwIfAborted();
  await saveShadowJson(file,{key,...result,source,version:VERSION,checksum:snapshotHash(JSON.stringify({key,end:result.end,...(result.recovery?{recovery:result.recovery}:{})}))});return {end:result.end,recovery:result.recovery,cacheHit:false};

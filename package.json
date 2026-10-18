@@ -8,12 +8,14 @@
     "start": "tsx src/server.ts",
     "dev": "tsx watch src/server.ts",
     "typecheck": "tsc --noEmit",
-    "test": "node --import tsx --test --test-concurrency=4 test/*.test.ts packaging/setup.test.mjs",
+    "test": "node --import tsx --test --test-concurrency=4 test/*.test.ts packaging/*.test.mjs",
     "build": "tsc -p tsconfig.build.json",
     "logs:summary": "tsx src/log-summary.ts",
     "package:windows": "node packaging/build.mjs",
     "package:verify": "node packaging/verify.mjs",
-    "audit:public": "node tools/audit-public.mjs"
+    "audit:public": "node tools/audit-public.mjs",
+    "verify:dual-audio": "node tools/verify-dual-audio.mjs",
+    "verify:synthetic-http": "node tools/verify-synthetic.mjs --concurrency"
   },
   "dependencies": {
     "aribts": "1.3.5"
