@@ -78,7 +78,7 @@ test('Absent receiver service, SOAP fault, and real Sink remain distinct',async(
  const real=await inspectClientCapability('http://192.168.1.2/',undefined,undefined,async(_,i)=>new Response(i?.method==='POST'?'<Sink>http-get:*:video/mpeg:DLNA.ORG_PN=MPEG_PS_NTSC</Sink>':description));assert.equal(real.sinkStatus,'advertised');
 });
 const rootPage=(start:number,count:number)=>{const entries=['<container id="rec"/>','<container id="experimental"/>'].slice(start,count?start+count:undefined).map(s=>s.replaceAll('<','&lt;').replaceAll('>','&gt;'));return `<Result>&lt;DIDL-Lite&gt;${entries.join('')}&lt;/DIDL-Lite&gt;</Result><NumberReturned>${entries.length}</NumberReturned><TotalMatches>2</TotalMatches>`;};
-test('Diagnostic root pagination adds one sibling only; ZP2 SOAP bytes unchanged',()=>{
+test('Diagnostic root pagination adds one sibling only; receiver SOAP bytes unchanged',()=>{
  for(const count of [0,1,2,11])for(const start of [0,1,2,3]){const xml=rootPage(start,count),b={objectId:'0',metadata:false,start,count};assert.equal(appendDiagnosticRoot(xml,b,false),xml);const r=appendDiagnosticRoot(xml,b,true);assert.match(r,/<TotalMatches>3</);const n=Number(/<NumberReturned>(\d+)/.exec(r)![1]);assert.equal(n,Math.max(0,Math.min(count||3,3-start)));assert.equal(r.includes('再生互換診断'),start<=2&&(count===0||start+count>2));}
  const metadata='<Result>&lt;container id=&quot;0&quot; parentID=&quot;-1&quot; childCount=&quot;2&quot;/&gt;</Result>';assert.match(appendDiagnosticRoot(metadata,{objectId:'0',metadata:true,start:0,count:0},true),/childCount=&quot;3/);
 });

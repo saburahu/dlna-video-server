@@ -8,7 +8,7 @@ FFmpegは動画の検査・変換、ffprobeは形式やcodec情報の取得に�
 
 [FFmpeg公式のダウンロード案内](https://ffmpeg.org/download.html#build-windows)にはWindowsビルドの提供元として[Gyan](https://www.gyan.dev/ffmpeg/builds/)が掲載されています。FFmpeg公式がexeを直接配布しているという意味ではありません。広告のダウンロードボタンや無関係な配布サイトを使わないでください。
 
-v0.2.0でPC検証とREGZA 3台・各2素材の実機再生確認を行ったのは **Gyan 8.1.2 essentials build** です。[8.1.2の配布ページ](https://github.com/GyanD/codexffmpeg/releases/tag/8.1.2)のAssetsから `ffmpeg-8.1.2-essentials_build.zip` を選ぶと、その構成を再現できます。`Source code` はexeを含みません。ZIPを選べばWindowsの「すべて展開」を使えます。
+PCと限定したREGZAテレビ・レコーダーで検証した構成は **Gyan 8.1.2 essentials build** です。[8.1.2の配布ページ](https://github.com/GyanD/codexffmpeg/releases/tag/8.1.2)のAssetsから `ffmpeg-8.1.2-essentials_build.zip` を選ぶと、その構成を再現できます。`Source code` はexeを含みません。ZIPを選べばWindowsの「すべて展開」を使えます。
 
 **8.1.2は動作確認版であり、最新版・脆弱性がない版という意味ではありません。** 配布元の更新・[セキュリティ情報](https://ffmpeg.org/security.html)も確認してください。新しい版や別提供元のビルドを使う場合、Setupの検査を通っても再生互換性は未検証です。今回の文書更新でruntimeを別版へ変更していません。7.1.1はSetupで拒否されます。
 

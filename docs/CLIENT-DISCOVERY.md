@@ -10,6 +10,6 @@ v0.2.3は端末の一時的な探索失敗からの復旧を改善します。�
 
 診断ログのAUTO_CLIENT_DISCOVERY_STAGEはSSDP無応答/transport error、Description取得失敗、UDN不一致、CM失敗を区別します。AUTO_CLIENT_RETRY_SCHEDULED/WAITは遅延・待機理由を記録します。ログには端末情報が含まれるので公開Issueへそのまま添付しないでください。
 
-Private修正版でZP2の実機動作をユーザーが確認しています。自動復旧は制御時計/合成端末による模擬テストです。Public v0.2.3 ZIPそのもののZP2実機試験は未実施です。SSDP失敗の根本原因（端末不応答、UDP欠落等）は未確定です。
+対応するREGZA受信機での再生確認とは別に、探索失敗後の自動復旧は制御時計/合成端末による模擬テストで検証しています。配布ZIPそのものの全受信機での確認は行っていません。SSDP失敗の根本原因（端末不応答、UDP欠落等）は未確定です。
 
 更新はStop→Backup→新版を別アプリフォルダへ展開→同じdata/外部FFmpegをSetupで指定。既存データを初期化しません。管理画面/APIのlocalhost限定を維持します。

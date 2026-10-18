@@ -8,7 +8,7 @@
 - 独立npm ci、型チェック、ビルド、452/452テスト（skip 0）、情報検査0件、npm audit0件。パターン検査は未知の秘密の不存在を完全には証明しない。
 - 合成MP4/HEVC MKV/AVI/WMV×両JIT×3範囲=24件の実HTTP/decode/Seek/終端検証。2executor重複、3本目拒否、Seek/停止/枠再利用/cleanupを検証。
 - Node-only配布版を開発フォルダ外で起動し、SQLite/DLNA/TS TimeSeek/VLC Direct/Range/HTTP Seek/定期更新/backup/import/UDN/バージョン切替/管理拒否を検証。
-- 新runtimeは開発版のPC・実機確認を先行。ZP2/55X9900R/DBR-T1010の各MP4/HEVC MKV再生成功。全機能/全機種再検証ではない。
+- runtimeはPC検証と限定したREGZA受信機で確認。全機能/全機種再検証ではない。個人の機器構成や試験履歴は公開しない。
 
 ## 毎回の公開前
 

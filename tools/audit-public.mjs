@@ -7,6 +7,10 @@ const deniedFile=process.argv.indexOf('--denylist'),terms=deniedFile<0?[]:JSON.p
 const rules=[['github-credential',/\b(?:gh[pousr]_[A-Za-z0-9]{30,}|github_pat_[A-Za-z0-9_]{40,})\b/],['private-key',/-----BEGIN (?:RSA |EC |OPENSSH |ENCRYPTED )?PRIVATE KEY-----/],['user-home-path',/(?:[A-Z]:[\\/](?:Users|Documents and Settings)[\\/][\w.-]+)|\/(?:home|Users)\/[\w.-]+\//i],['private-repository',new RegExp('(?:'+['pt3-recording','server-backup'].join('-')+'|'+['dlna-video-server','private'].join('-')+')')],['original-lan',new RegExp(['192','168','11','\\d+'].join('\\.'))]];
 let fixtureIps=0,fixtureUdns=0;const files=[];
 for(const p of found){const b=await fs.readFile(path.join(root,p));if(b.includes(0))findings.push({path:p,rule:'binary-file-in-source'});const text=b.toString('utf8');for(const[name,re]of rules)if(re.test(text))findings.push({path:p,rule:name});for(let i=0;i<terms.length;i++)if(terms[i]&&text.includes(terms[i]))findings.push({path:p,rule:'external-private-term-'+i});
+ if(p.startsWith('docs/')||['README.md','CHANGELOG.md'].includes(p)){
+  if(/\b(?:ZP2|(?:55)?X9900R|49Z700X|DBR-[A-Z0-9]+)\b/.test(text))findings.push({path:p,rule:'receiver-model-in-public-document-needs-review'});
+  if(/\b20\d{2}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/.test(text))findings.push({path:p,rule:'operation-timestamp-in-public-document'});
+ }
  for(const m of text.matchAll(/\b(?:10(?:\.\d{1,3}){3}|192\.168(?:\.\d{1,3}){2}|172\.(?:1[6-9]|2\d|3[01])(?:\.\d{1,3}){2})\b/g)){if(p.startsWith('test/')||/^src\/verify-/.test(p))fixtureIps++;else findings.push({path:p,rule:'private-address-literal-outside-synthetic-test'});}
  for(const m of text.matchAll(/\b[a-f\d]{8}-[a-f\d]{4}-[a-f\d]{4}-[a-f\d]{4}-[a-f\d]{12}\b/gi)){if((p.startsWith('test/')||['src/avc-http-control.ts','src/avc-picture-trial.ts','src/registry-adapter.ts'].includes(p))&&/^00000000-0000-4000-8000-\d{12}$/.test(m[0]))fixtureUdns++;else findings.push({path:p,rule:'unreviewed-static-uuid'});}
  files.push({path:p,bytes:b.length,sha256:createHash('sha256').update(b).digest('hex')});}
