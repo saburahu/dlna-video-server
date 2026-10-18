@@ -2,7 +2,7 @@
 
 [README](../README.md) ／ [対応実績](COMPATIBILITY.md) ／ [既知の問題](KNOWN-ISSUES.md)
 
-このページの限定2音声JITは**mainの次回配布候補**です。既存v0.2.3のRelease ZIPには
+このページの限定2音声JITは**v0.3.0で追加**しました。既存v0.2.3のRelease ZIPには
 含まれません。全動画・全受信機を2音声にする機能ではありません。
 
 ## Direct PlayとJIT
