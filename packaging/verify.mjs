@@ -1,4 +1,4 @@
-import {prepareTestInstallation} from './test-installation.mjs';
+import {prepareTestInstallation,assertTestControlData} from './test-installation.mjs';
 // Run with the builder's Node. Every application operation below uses the
 // packaged runtime, executable paths and compiled JS in a repository-external copy.
 import {promises as fs} from 'node:fs';
@@ -15,14 +15,14 @@ assert.ok(process.env.PT3_TEST_FFMPEG_DIR,'Public tests require a separately ins
 const installation=await prepareTestInstallation(input,'public'),{home,app}=installation,data=path.join(home,'state'),media=path.join(home,'録画','階層','番組');
 await fs.mkdir(media,{recursive:true});
 const node=path.join(app,'runtime','node.exe'),external=path.resolve(process.env.PT3_TEST_FFMPEG_DIR??path.join(app,'runtime')),ffmpeg=path.join(external,'ffmpeg.exe');
-const env={...process.env,NODE_PATH:'',PT3_DATA_DIR:data,PT3_LOG_DIR:path.join(data,'logs'),PT3_FFMPEG_DIR:external,PT3_FFMPEG:ffmpeg,PT3_FFPROBE:path.join(external,'ffprobe.exe'),PATH:[external,path.join(app,'runtime'),path.join(process.env.SystemRoot,'System32'),path.join(process.env.SystemRoot,'System32','WindowsPowerShell','v1.0')].join(path.delimiter)};
+const env={...process.env,LOCALAPPDATA:path.join(home,'local-appdata'),APPDATA:path.join(home,'roaming-appdata'),NODE_PATH:'',PT3_DATA_DIR:data,PT3_LOG_DIR:path.join(data,'logs'),PT3_FFMPEG_DIR:external,PT3_FFMPEG:ffmpeg,PT3_FFPROBE:path.join(external,'ffprobe.exe'),PATH:[external,path.join(app,'runtime'),path.join(process.env.SystemRoot,'System32'),path.join(process.env.SystemRoot,'System32','WindowsPowerShell','v1.0')].join(path.delimiter)};
 const run=(file,args,options={})=>exec(file,args,{cwd:app,env,windowsHide:true,maxBuffer:10485760,timeout:300000,...options});
-const ctl=async(...args)=>{const config=await fs.readFile(path.join(app,'launcher.json'),'utf8').then(JSON.parse).catch(()=>({}));const selected=args.includes('--data')?args[args.indexOf('--data')+1]:config.data??data;assert.ok(path.resolve(selected).startsWith(home+path.sep),'Test control refuses external data');return run(node,[path.join(app,'control.mjs'),...args,...(args.includes('--data')?[]:['--data',selected])]);};
+const ctl=async(...args)=>{const config=await fs.readFile(path.join(app,'launcher.json'),'utf8').then(JSON.parse).catch(()=>({}));const selected=args.includes('--data')?args[args.indexOf('--data')+1]:config.data??data;assertTestControlData(home,app,args[0],selected);return run(node,[path.join(app,'control.mjs'),...args,...(args.includes('--data')?[]:['--data',selected])]);};
 const read=async file=>JSON.parse(await fs.readFile(file,'utf8'));
 const hash=async file=>createHash('sha256').update(await fs.readFile(file)).digest('hex');
 const results={home,package:path.resolve(input),checks:[],jit:undefined,concurrency:undefined};
 try{
- await ctl('ffmpeg','--data',data,'--directory',external);await ctl('doctor');results.checks.push('Manifest, bundled pinned runtime or explicit external override, SQLite and software encoders');
+ await ctl('ffmpeg','--data',data,'--directory',external);await ctl('doctor');results.checks.push('Manifest, bundled Node, separate user-managed FFmpeg, SQLite and software encoders');
  // Small synthetic library tests the *distribution* and discovery, not receiver quality.
  await run(ffmpeg,['-hide_banner','-loglevel','error','-f','lavfi','-i','testsrc2=size=320x240:rate=25','-f','lavfi','-i','sine=sample_rate=48000','-t','4','-c:v','mpeg2video','-c:a','aac','-f','mpegts',path.join(media,'試験.ts')]);
  for(const [name,v,a] of [['試験.mp4','libx264','aac'],['試験.mkv','libx265','aac'],['試験.avi','mpeg4','mp3'],['試験.wmv','wmv2','wmav2']])await run(ffmpeg,['-hide_banner','-loglevel','error','-f','lavfi','-i','testsrc2=size=320x240:rate=25','-f','lavfi','-i','sine=sample_rate=48000','-t','4','-c:v',v,'-c:a',a,path.join(media,name)]);

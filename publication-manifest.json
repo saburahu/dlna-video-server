@@ -279,6 +279,7 @@
     "test/jit-failures.test.ts",
     "test/jit-family-trial.test.ts",
     "test/jit-picture-validation.test.ts",
+    "test/jit-production-clock-boundary.test.ts",
     "test/jit-request-queue.test.ts",
     "test/jit-seek.test.ts",
     "test/jit-segment.test.ts",

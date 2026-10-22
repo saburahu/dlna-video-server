@@ -4,12 +4,12 @@
 
 ## 1. 配布ZIPを取得して展開
 
-[Releasesの最新版](https://github.com/saburahu/dlna-video-server/releases/latest)のAssetsから `DLNA-Video-Server-0.2.3-win-x64.zip` と `SHA256SUMS.txt` を取得します。GitHubの緑色のCodeボタンや `Source code (zip)` ではなく、Windows用ZIPを選びます。
+[Releasesの最新版](https://github.com/saburahu/dlna-video-server/releases/latest)のAssetsから `DLNA-Video-Server-0.4.1-public-win-x64.zip` と `SHA256SUMS.txt` を取得します。GitHubの緑色のCodeボタンや `Source code (zip)` ではなく、Windows用ZIPを選びます。
 
-必要ならダウンロード先でPowerShellを開き、v0.2.3では次でSHA-256を確認します。別の版では実際のファイル名へ置き換え、結果を同じReleaseのSHA256SUMS.txtと照合します。
+必要ならダウンロード先でPowerShellを開き、v0.4.1候補では次でSHA-256を確認します。別の版では実際のファイル名へ置き換え、結果を同じReleaseのSHA256SUMS.txtと照合します。
 
 ```powershell
-Get-FileHash -Algorithm SHA256 -LiteralPath '.\DLNA-Video-Server-0.2.3-win-x64.zip'
+Get-FileHash -Algorithm SHA256 -LiteralPath '.\DLNA-Video-Server-0.4.1-public-win-x64.zip'
 ```
 
 エクスプローラーで「すべて展開」し、書き込み可能なローカルフォルダへ置きます。アプリを録画フォルダ・dataフォルダ・NAS・書込み制限のあるProgram Filesへ置かないでください。展開先には `Setup.cmd`、`Start.cmd`、`runtime`、`app` が見えます。
@@ -66,7 +66,7 @@ NAS上の録画は、サーバーを起動したWindowsユーザーに読み取�
 
 Windowsの警告やSetupのエラーが出たら、そのまま何度もStartを重ねず、[症状別ガイド](TROUBLESHOOTING.md)を確認してください。端末がフリーズ・再起動したら同じ再生を繰り返さず、[ログ](LOGS.md)を保存します。
 
-名称変更後の配布ZIPの基本名は `DLNA-Video-Server-0.2.3-win-x64.zip` です。既存Releaseの旧名称ZIPはそのまま保持しています。入手したZIPの名前に合わせて上のハッシュ確認コマンドを読み替えてください。新名称の配布公開前は、既存ReleaseのZIPをご利用ください。
+名称変更後の配布ZIPの基本名は `DLNA-Video-Server-0.4.1-public-win-x64.zip` です。既存Releaseの旧名称ZIPはそのまま保持しています。入手したZIPの名前に合わせて上のハッシュ確認コマンドを読み替えてください。新名称の配布公開前は、既存ReleaseのZIPをご利用ください。
 
 ### 動画フォルダーを後で登録する
 

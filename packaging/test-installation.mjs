@@ -2,6 +2,12 @@
 import assert from'node:assert/strict';import fs from'node:fs/promises';import path from'node:path';import os from'node:os';import{randomUUID}from'node:crypto';
 const read=async file=>JSON.parse(await fs.readFile(file,'utf8'));
 const alive=pid=>{if(!Number.isSafeInteger(pid)||pid<=0)return true;try{process.kill(pid,0);return true;}catch(e){return e.code!=='ESRCH';}};
+export function assertTestControlData(home,app,command,data){
+ const selected=path.resolve(data);assert.ok(selected.startsWith(home+path.sep)||(command==='setup'&&selected.startsWith(app+path.sep)),
+  'Test control refuses external data');
+ // The setup exception exercises the product's refusal to put data inside its
+ // own disposable application. It never permits start/stop against that path.
+}
 export async function prepareTestInstallation(input,edition){
  assert.ok(['private','public'].includes(edition));
  const base=path.resolve(process.env.DLNA_TEST_INSTALL_ROOT??path.join(os.tmpdir(),'DLNA-Video-Server-repeat-tests'),edition);
