@@ -8,6 +8,8 @@ import dgram from 'node:dgram';
 import os from 'node:os';
 import{externalFFmpeg}from'./external-ffmpeg.mjs';
 const root=path.dirname(fileURLToPath(import.meta.url));
+const manifest=JSON.parse(await fs.readFile(path.join(root,'manifest.json'),'utf8'));
+process.env.PT3_BUILD_ID=manifest.buildId??manifest.release;
 const config=JSON.parse(await fs.readFile(path.join(root,'launcher.json'),'utf8'));
 const data=path.resolve(config.data),logs=path.join(data,'logs');
 await fs.mkdir(logs,{recursive:true});

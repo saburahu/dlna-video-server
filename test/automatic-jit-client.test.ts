@@ -17,8 +17,25 @@ import {jitRecipeFingerprint} from '../src/jit-client-trial.js';
 import {matchingJitTrial} from '../src/jit-client-trial.js';
 import {selectDualAudio} from '../src/jit-dual-audio.js';
 import {admissionIdentity} from '../src/jit-client-admission.js';
+import {scopedWmaInputPermission,wmaInputBinding} from '../src/wma-input-permission.js';
 
 const intelUA={'user-agent':'UPnP/1.0 Intel_SDK_for_UPnP_devices/1.2'};
+test('source-bound WMA Pro input opt-in fixes v1 publication without broadening receivers, sources or clocks',()=>{
+ const ep=endpoint(),p=policy();p.automaticClients!.legacyInputs=true;p.automaticClients!.wmaInputs='source-clock-v1';
+ const selection=automaticClientSelection([ep],requestFamilyFeatures(intelUA,''),p);assert.ok(selection.trial);p.targetProfile=selection.profile!.id;p.clientTrials=[selection.trial];
+ const probe={format:{duration:'100',format_name:'asf'},executionDecoders:['wmv3','wmapro'],streams:[{codec_type:'video',codec_name:'wmv3',width:640,height:480,pix_fmt:'yuv420p',r_frame_rate:'24000/1001'},{codec_type:'audio',codec_name:'wmapro',channels:2,channel_layout:'stereo',sample_rate:'48000'}]};
+ const entry:ExperimentalEntry={objectId:'experimental/catalog-item/'+'e'.repeat(32),filename:'synthetic.wmv',fingerprint:{path:'X:/synthetic',size:100,mtimeMs:1},sourceState:'unanalysed',decisions:[],lightweightProbe:probe};
+ assert.equal(catalogJitCandidate(entry,p,ep.capability),undefined);
+ const permission={version:'wma-input-permission-v1' as const,enabled:true,deviceId:ep.capability.deviceId,sinkHash:ep.capability.sinkHash,implementationFingerprint:ep.capability.implementation.fingerprint,targetProfile:p.targetProfile,reference:'Synthetic source evidence',sourceFingerprint:entry.fingerprint,inputPolicy:'source-clock-v2' as const};
+ p.wmaInputPermissions=[permission];assert.ok(catalogJitCandidate(entry,p,ep.capability));assert.equal(p.automaticClients!.wmaInputs,'source-clock-v1');
+ assert.equal(wmaInputBinding('base',undefined),'base');assert.notEqual(wmaInputBinding('base',permission),'base');assert.notEqual(wmaInputBinding('base',permission),wmaInputBinding('other',permission));
+ for(const change of [{enabled:false},{version:'invalid'},{inputPolicy:'source-clock-v1'},{reference:''},{deviceId:'uuid:other'},{sinkHash:'other'},{implementationFingerprint:'other'},{targetProfile:'other'},{sourceFingerprint:{...entry.fingerprint,size:101}},{sourceFingerprint:{...entry.fingerprint,mtimeMs:2}},{sourceFingerprint:{...entry.fingerprint,path:'X:/other'}}]){
+  const changed={...p,wmaInputPermissions:[{...permission,...change} as any]};assert.equal(catalogJitCandidate(entry,changed,ep.capability),undefined,JSON.stringify(change));
+ }
+ assert.equal(catalogJitCandidate(entry,{...p,wmaInputPermissions:[permission,permission]},ep.capability),undefined);
+ for(const bad of [{...probe,format:{...probe.format,format_name:'avi'}},{...probe,streams:[{...probe.streams[0],codec_name:'vc1'},probe.streams[1]]},{...probe,streams:[probe.streams[0],{...probe.streams[1],channels:6}]},{...probe,streams:[probe.streams[0],{...probe.streams[1],channel_layout:undefined}]}])assert.equal(scopedWmaInputPermission([permission],ep.capability,p.targetProfile,entry.fingerprint,bad),undefined);
+ assert.equal(selectDualAudio(undefined,ep.capability,probe,p.targetProfile,false,true,entry.fingerprint).plan,undefined,'Input permission never enrolls dual audio');
+});
 const bdrUA={'user-agent':'JLABSDOC/1.0 TOSHIBA_JP_BDR_V1.0'};
 const bdrBrowse='<u:Browse><Filter>funai:dnUrl,res@dlna:cleartextSize</Filter></u:Browse>';
 function policy():ExperimentalJitPolicy {const p=initialShadowPolicy();p.profiles=[p.profiles[0],mpeg2JitProfile()];p.capabilities={encoders:[{codec:'h264',available:true},{codec:'mpeg2video',available:true},{codec:'aac',available:true}],decoders:[{codec:'h264',available:true},{codec:'hevc',available:true},{codec:'aac',available:true}]};return {version:'experimental-jit-v1',enabled:true,targetProfile:'legacy-jp-observed',policy:p,capabilities:[],items:[],catalogMetadataResources:true,automaticClients:{version:AUTOMATIC_CLIENT_VERSION,enabled:true}};}

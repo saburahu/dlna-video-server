@@ -1,6 +1,6 @@
 {
   "name": "pt3-recording-server",
-  "version": "0.3.0",
+  "version": "0.4.1",
   "private": true,
   "description": "家庭内LAN向け録画ファイルUPnP/DLNAメディアサーバー",
   "type": "module",

@@ -1,6 +1,8 @@
 # DLNA Video Server
 
-**v0.3.0**。限定2音声の条件は[複数音声](docs/MULTI-AUDIO.md)、未解決の音声終端・REGZAレコーダーの復帰不能事象は[既知の問題](docs/KNOWN-ISSUES.md)を確認してください。
+[Private／Public共通 v0.4.1 ローカル候補の変更と制限](packaging/release-notes/0.4.1.md)。まだ公開済みの最新版ではありません。
+
+**v0.4.1**。限定2音声の条件は[複数音声](docs/MULTI-AUDIO.md)、未解決の音声終端・REGZAレコーダーの復帰不能事象は[既知の問題](docs/KNOWN-ISSUES.md)を確認してください。
 
 Windows PC上の録画・動画を家庭内LANへ配信する、**REGZAテレビ・レコーダー向けの互換性を重視したDLNAサーバー**です。VLC向けにはDirect Playも提供します。本ソフトウェアは独立したオープンソースプロジェクトであり、REGZAのメーカーによる公式製品・公式ソフトウェアではありません。**サーバー自体に録画・チューナー制御機能はありません。** 適法に利用できる平文メディアを扱い、DRM・DTCP-IP・放送の暗号化を解除する機能は提供しません。
 

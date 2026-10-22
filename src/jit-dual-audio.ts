@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import {snapshotHash,type CapabilitySnapshot} from './playback-shadow.js';
+import {snapshotHash,type CapabilitySnapshot,type Fingerprint} from './playback-shadow.js';
 import {JitAudioClock} from './jit-audio-clock.js';
 import {containerAacPair} from './container-aac-pair.js';
 import {aacPairAuditArguments} from './aac-pair-audit.js';
@@ -8,12 +8,16 @@ import {aacPairAuditArguments} from './aac-pair-audit.js';
 export interface DualAudioPermission {
  version:'jit-dual-audio-permission-v1';enabled:boolean;deviceId:string;sinkHash:string;
  implementationFingerprint:string;targetProfile:string;reference:string;
+ /** Optional isolated-trial source gate; absent preserves existing enrolled receivers. */
+ sourceScope?:{version:'jit-dual-audio-source-scope-v1';fingerprints:readonly Fingerprint[];
+  /** Only newly enrolled H.264 AVI trials: do not enable an untested no-CFR pair. */
+  h264AviCfrRequired?:readonly Fingerprint[]};
 }
 export interface DualAudioPlan {
  version:'wmv3-two-wmapro-48k-stereo-v1'|'wmv3-two-wmav2-48k-stereo-v1'|'avi-h264-two-mp3-48k-stereo-v1'|'mp4-h264-two-aaclc-48k-stereo-v1'|'mkv-hevc-two-aaclc-48k-stereo-v1';targetProfile:string;mpeg2:boolean;
  sourceSignature:string;audioIndices:number[];audioPids:number[];
 }
-export function selectDualAudio(permissions:readonly DualAudioPermission[]|undefined,cap:CapabilitySnapshot|undefined,probe:any,targetProfile:string,mpeg2:boolean,bound:boolean){
+export function selectDualAudio(permissions:readonly DualAudioPermission[]|undefined,cap:CapabilitySnapshot|undefined,probe:any,targetProfile:string,mpeg2:boolean,bound:boolean,fingerprint?:Fingerprint,receiverCfr?:string){
  const no=(reason:string)=>({plan:undefined as DualAudioPlan|undefined,permission:undefined as DualAudioPermission|undefined,reason});
  const audio=probe?.streams?.filter((s:any)=>s.codec_type==='audio')??[],videos=probe?.streams?.filter((s:any)=>s.codec_type==='video')??[];
  if(audio.length<2)return no('single-source-audio');
@@ -22,6 +26,15 @@ export function selectDualAudio(permissions:readonly DualAudioPermission[]|undef
  if(records.length!==1||!records[0].enabled)return no('receiver-target-not-enrolled-for-dual-audio');
  const permission=records[0];
  if(permission.version!=='jit-dual-audio-permission-v1'||!permission.reference?.trim()||permission.sinkHash!==cap.sinkHash||permission.implementationFingerprint!==cap.implementation.fingerprint)return no('dual-audio-permission-evidence-mismatch');
+ if(permission.sourceScope!==undefined){
+  const scope=permission.sourceScope;
+  if(scope?.version!=='jit-dual-audio-source-scope-v1'||!Array.isArray(scope.fingerprints)||!scope.fingerprints.length||!scope.fingerprints.every(f=>f&&typeof f.path==='string'&&f.path.length>0&&Number.isFinite(f.size)&&f.size>=0&&Number.isFinite(f.mtimeMs))||!fingerprint||scope.fingerprints.filter(f=>f&&f.path===fingerprint.path&&Number.isFinite(f.size)&&Number.isFinite(f.mtimeMs)&&f.size===fingerprint.size&&f.mtimeMs===fingerprint.mtimeMs).length!==1)return no('dual-audio-source-scope-mismatch');
+  if(scope.h264AviCfrRequired!==undefined){
+   const same=(a:Fingerprint,b:Fingerprint)=>a?.path===b?.path&&a?.size===b?.size&&a?.mtimeMs===b?.mtimeMs;
+   if(!Array.isArray(scope.h264AviCfrRequired)||!scope.h264AviCfrRequired.every(f=>scope.fingerprints.filter(g=>same(f,g)).length===1))return no('dual-audio-invalid-cfr-source-scope');
+   if(scope.h264AviCfrRequired.some(f=>same(f,fingerprint))&&receiverCfr!=='receiver-h264-avi-cfr-30000-1001-trial-v1')return no('dual-audio-source-requires-validated-h264-avi-cfr');
+  }
+ }
  if(audio.length!==2||videos.length!==1||new Set(probe.streams.map((s:any)=>s.index)).size!==probe.streams.length||!probe.streams.every((s:any)=>Number.isSafeInteger(s.index)&&s.index>=0))return no('dual-audio-stream-layout-unverified');
  const pair=containerAacPair(probe);
  if(pair){

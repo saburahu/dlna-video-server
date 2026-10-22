@@ -1,3 +1,4 @@
+import {PRODUCT_VERSION} from './product-version.js';
 import { createReadStream, promises as fs } from "node:fs";
 import http, { IncomingMessage, ServerResponse } from "node:http";
 import { networkInterfaces } from "node:os";
@@ -463,7 +464,7 @@ async function handler(req: IncomingMessage, res: ServerResponse) {
       }
       if(url.pathname==='/api/pcr-cache'&&req.method==='GET')return sendJson(res,200,await pcrBackground.inspect());
       if(url.pathname==='/api/pcr-cache'&&req.method==='POST'){try{return sendJson(res,200,await pcrBackground.configure(JSON.parse(await body(req))));}catch(e){return sendJson(res,400,{error:String(e)});}}
-      if (url.pathname === "/api/status") return sendJson(res, 200, { running: true, baseUrl: baseUrl(), settings, trial,
+      if (url.pathname === "/api/status") return sendJson(res, 200, { running: true, productVersion: PRODUCT_VERSION, buildId: process.env.PT3_BUILD_ID ?? null, baseUrl: baseUrl(), settings, trial,
         logStorage: { directory: diskLog.directory, maxBytes: diskLog.maxBytes, archives: diskLog.archives, error: logError },
         pcrCache: pcrIndexCacheStatus(),
         programCount: programs.length, logs: logs.slice(-20), interfaces: availableInterfaces() });

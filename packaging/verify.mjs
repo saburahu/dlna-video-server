@@ -1,3 +1,4 @@
+import {prepareTestInstallation} from './test-installation.mjs';
 // Run with the builder's Node. Every application operation below uses the
 // packaged runtime, executable paths and compiled JS in a repository-external copy.
 import {promises as fs} from 'node:fs';
@@ -10,17 +11,18 @@ import {promisify} from 'node:util';
 import {createHash} from 'node:crypto';
 const exec=promisify(execFile),[input,auditFile,sourcePolicy,sourceList]=process.argv.slice(2);
 assert.ok(input,'Usage: node packaging/verify.mjs PACKAGE [FIVE-CLIENT-AUDIT SOURCE-POLICY SOURCE-LIST]');
-const home=await fs.mkdtemp(path.join(os.tmpdir(),'PT3 配布検証 ')),app=path.join(home,'version-1'),data=path.join(home,'state'),media=path.join(home,'録画','階層','番組');
-await fs.cp(path.resolve(input),app,{recursive:true});await fs.mkdir(media,{recursive:true});
-const node=path.join(app,'runtime','node.exe'),external=path.resolve(process.env.PT3_TEST_FFMPEG_DIR??''),ffmpeg=path.join(external,'ffmpeg.exe');assert.ok(process.env.PT3_TEST_FFMPEG_DIR,'Set PT3_TEST_FFMPEG_DIR to a separate user-managed FFmpeg bin directory');
+assert.ok(process.env.PT3_TEST_FFMPEG_DIR,'Public tests require a separately installed FFmpeg/ffprobe directory');
+const installation=await prepareTestInstallation(input,'public'),{home,app}=installation,data=path.join(home,'state'),media=path.join(home,'録画','階層','番組');
+await fs.mkdir(media,{recursive:true});
+const node=path.join(app,'runtime','node.exe'),external=path.resolve(process.env.PT3_TEST_FFMPEG_DIR??path.join(app,'runtime')),ffmpeg=path.join(external,'ffmpeg.exe');
 const env={...process.env,NODE_PATH:'',PT3_DATA_DIR:data,PT3_LOG_DIR:path.join(data,'logs'),PT3_FFMPEG_DIR:external,PT3_FFMPEG:ffmpeg,PT3_FFPROBE:path.join(external,'ffprobe.exe'),PATH:[external,path.join(app,'runtime'),path.join(process.env.SystemRoot,'System32'),path.join(process.env.SystemRoot,'System32','WindowsPowerShell','v1.0')].join(path.delimiter)};
 const run=(file,args,options={})=>exec(file,args,{cwd:app,env,windowsHide:true,maxBuffer:10485760,timeout:300000,...options});
-const ctl=(...args)=>run(node,[path.join(app,'control.mjs'),...args]);
+const ctl=async(...args)=>{const config=await fs.readFile(path.join(app,'launcher.json'),'utf8').then(JSON.parse).catch(()=>({}));const selected=args.includes('--data')?args[args.indexOf('--data')+1]:config.data??data;assert.ok(path.resolve(selected).startsWith(home+path.sep),'Test control refuses external data');return run(node,[path.join(app,'control.mjs'),...args,...(args.includes('--data')?[]:['--data',selected])]);};
 const read=async file=>JSON.parse(await fs.readFile(file,'utf8'));
 const hash=async file=>createHash('sha256').update(await fs.readFile(file)).digest('hex');
 const results={home,package:path.resolve(input),checks:[],jit:undefined,concurrency:undefined};
 try{
- await ctl('ffmpeg','--data',data,'--directory',external);await ctl('doctor');results.checks.push('Manifest, Node LTS, separate user-managed FFmpeg, SQLite and software encoders');
+ await ctl('ffmpeg','--data',data,'--directory',external);await ctl('doctor');results.checks.push('Manifest, bundled pinned runtime or explicit external override, SQLite and software encoders');
  // Small synthetic library tests the *distribution* and discovery, not receiver quality.
  await run(ffmpeg,['-hide_banner','-loglevel','error','-f','lavfi','-i','testsrc2=size=320x240:rate=25','-f','lavfi','-i','sine=sample_rate=48000','-t','4','-c:v','mpeg2video','-c:a','aac','-f','mpegts',path.join(media,'試験.ts')]);
  for(const [name,v,a] of [['試験.mp4','libx264','aac'],['試験.mkv','libx265','aac'],['試験.avi','mpeg4','mp3'],['試験.wmv','wmv2','wmav2']])await run(ffmpeg,['-hide_banner','-loglevel','error','-f','lavfi','-i','testsrc2=size=320x240:rate=25','-f','lavfi','-i','sine=sample_rate=48000','-t','4','-c:v',v,'-c:a',a,path.join(media,name)]);
@@ -37,7 +39,7 @@ try{
  assert.equal((await fetch(base+'/api/status',{headers:{Origin:'https://attacker.example'}})).status,403,'foreign Origin');
  const lan=Object.values(os.networkInterfaces()).flat().find(i=>i?.family==='IPv4'&&!i.internal);if(lan)assert.equal((await fetch('http://'+lan.address+':19204/api/status')).status,403,'LAN management');
  results.checks.push('Actual HTTP: absent write header, foreign Host/Origin and LAN administration rejected');
- const status=await fetch(base+'/api/status').then(r=>r.json());assert.equal(status.running,true);assert.equal(status.logStorage.error,null);
+ const status=await fetch(base+'/api/status').then(r=>r.json());assert.equal(status.running,true);assert.equal(status.productVersion,'0.4.1');assert.ok(status.buildId?.startsWith('0.4.1'));assert.equal(status.logStorage.error,null);
  assert.match(await fetch(base+'/').then(r=>r.text()),/<html/i);
  assert.match(await fetch(base+'/upnp/device.xml').then(r=>r.text()),new RegExp(settings.udn));
  assert.ok((await fetch(base+'/upnp/device.xml').then(r=>r.text())).includes('<friendlyName>PT3 居間 &amp; 録画</friendlyName>'));
@@ -92,7 +94,7 @@ try{
  const after=await run(node,['--input-type=module','-e',`import {DatabaseSync} from 'node:sqlite';const d=new DatabaseSync(process.argv[1],{readOnly:true});console.log(JSON.stringify(d.prepare("SELECT id FROM media WHERE availability='available' ORDER BY id").all().map(v=>v.id)));d.close();`,path.join(imported,'experimental-catalog','media-index.sqlite')]);assert.deepEqual(JSON.parse(after.stdout),before);
  results.checks.push('Restart, offline backup/import, UDN and catalog IDs retained');
  // Separate installed version, same state; rollback is an offline snapshot into a new directory.
- const v2=path.join(home,'version-2');await fs.cp(path.resolve(input),v2,{recursive:true});
+ const v2=installation.alternate;
  await run(path.join(v2,'runtime','node.exe'),[path.join(v2,'control.mjs'),'setup','--data',imported,'--port','19204','--no-ssdp']);
  await run(path.join(v2,'runtime','node.exe'),[path.join(v2,'control.mjs'),'start']);await run(path.join(v2,'runtime','node.exe'),[path.join(v2,'control.mjs'),'stop']);
  assert.equal((await read(path.join(imported,'settings.json'))).udn,settings.udn);
@@ -102,4 +104,4 @@ try{
  const original=await fs.readFile(path.join(app,'README-ja.md'));await fs.appendFile(path.join(app,'README-ja.md'),'tamper');await assert.rejects(ctl('doctor'));await fs.writeFile(path.join(app,'README-ja.md'),original);results.checks.push('Corrupt package fails closed');
  results.passed=true;
 }catch(e){results.error=String(e);process.exitCode=1;}
-finally{await ctl('stop').catch(()=>{});await fs.writeFile(path.join(home,'result.json'),JSON.stringify(results,null,2));console.log(JSON.stringify({home,passed:results.passed,checks:results.checks,error:results.error}));}
+finally{await ctl('stop').catch(()=>{});await run(path.join(installation.alternate,'runtime/node.exe'),[path.join(installation.alternate,'control.mjs'),'stop','--data',path.join(home,'imported')],{cwd:installation.alternate}).catch(()=>{});await fs.writeFile(path.join(home,'result.json'),JSON.stringify(results,null,2));console.log(JSON.stringify({home,app,alternate:installation.alternate,passed:results.passed,checks:results.checks,error:results.error}));await installation.release();}

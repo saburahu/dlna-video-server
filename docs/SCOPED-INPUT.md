@@ -1,0 +1,11 @@
+# 素材・個体に限定したWMA入力と2音声
+
+入力許可は特定受信機のdeviceId、現在のsinkHash、implementationFingerprint、targetProfile、sourceFingerprint（path/size/mtimeMs）、有効なreferenceを照合します。形式・codec・48kHzステレオなど既存の入力条件も必要です。重複、無効、非一致の許可は採用しません。
+
+WMA入力モードの既定値はsource-clock-v1のままです。wmaInputPermissionsのversion wma-input-permission-v1、inputPolicy source-clock-v2は独立した明示許可であり、WMA Pro全体を自動有効化しません。2音声には別のdualAudioPermissionsが必要で、入力許可だけでは切替機能を与えません。両方ともURL bindingに結合します。
+
+配布既定値は空です。実際の個体・素材情報は利用者のデータ領域のみに保存し、他人の許可レコードをコピーしません。追加・解除は停止中の設定コピーで検証し、既存レコードを保持します。不一致で従来fallbackまたは拒否へ戻ることを確認してください。
+
+通常の対象受信機経路はVFRです。映像CFR許可はさらに独立しており、入力許可から自動適用しません。2音声はAACを別PIDへ同時にmuxします。全機種・全素材の互換性保証ではありません。
+
+WMA自然EOFの既知制限、64ms監査と研究時計の非採用はRelease Notesを参照してください。
