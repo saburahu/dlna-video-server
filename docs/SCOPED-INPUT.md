@@ -9,3 +9,5 @@ WMA入力モードの既定値はsource-clock-v1のままです。wmaInputPermis
 通常の対象受信機経路はVFRです。映像CFR許可はさらに独立しており、入力許可から自動適用しません。2音声はAACを別PIDへ同時にmuxします。全機種・全素材の互換性保証ではありません。
 
 WMA自然EOFの既知制限、64ms監査と研究時計の非採用はRelease Notesを参照してください。
+
+AAC 2音声は受信機個体・配信先の基本能力許可を利用できます。作品追加ごとの登録は不要です。sourceScopeは例外として残し、入力WMA許可とは分離します。[能力と例外の詳細](DUAL-AUDIO-CAPABILITY.md)を参照してください。

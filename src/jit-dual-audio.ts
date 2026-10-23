@@ -8,7 +8,8 @@ import {aacPairAuditArguments} from './aac-pair-audit.js';
 export interface DualAudioPermission {
  version:'jit-dual-audio-permission-v1';enabled:boolean;deviceId:string;sinkHash:string;
  implementationFingerprint:string;targetProfile:string;reference:string;
- /** Optional isolated-trial source gate; absent preserves existing enrolled receivers. */
+ /** Absent: tested individual/target capability, with source eligibility checked
+  * on every request. Present: explicit source exception, never a family default. */
  sourceScope?:{version:'jit-dual-audio-source-scope-v1';fingerprints:readonly Fingerprint[];
   /** Only newly enrolled H.264 AVI trials: do not enable an untested no-CFR pair. */
   h264AviCfrRequired?:readonly Fingerprint[]};
@@ -22,10 +23,26 @@ export function selectDualAudio(permissions:readonly DualAudioPermission[]|undef
  const audio=probe?.streams?.filter((s:any)=>s.codec_type==='audio')??[],videos=probe?.streams?.filter((s:any)=>s.codec_type==='video')??[];
  if(audio.length<2)return no('single-source-audio');
  if(!bound||!cap?.deviceId||!cap.implementation?.fingerprint)return no('dual-audio-current-client-binding-required');
- const records=(permissions??[]).filter(p=>p.deviceId===cap.deviceId&&p.targetProfile===targetProfile);
- if(records.length!==1||!records[0].enabled)return no('receiver-target-not-enrolled-for-dual-audio');
- const permission=records[0];
- if(permission.version!=='jit-dual-audio-permission-v1'||!permission.reference?.trim()||permission.sinkHash!==cap.sinkHash||permission.implementationFingerprint!==cap.implementation.fingerprint)return no('dual-audio-permission-evidence-mismatch');
+ const records=(permissions??[]).filter(p=>p?.deviceId===cap.deviceId&&p.targetProfile===targetProfile);
+ const general=records.filter(p=>p.sourceScope===undefined),specific=records.filter(p=>p.sourceScope!==undefined);
+ if(general.length>1)return no('dual-audio-ambiguous-receiver-capability');
+ // A malformed exception cannot be proven unrelated, so do not bypass it with
+ // a receiver-wide grant. Unrelated *valid* source exceptions do not narrow one.
+ const validScope=(p:DualAudioPermission)=>{
+  const s=p.sourceScope,same=(a:Fingerprint,b:Fingerprint)=>a?.path===b?.path&&a?.size===b?.size&&a?.mtimeMs===b?.mtimeMs;
+  return s?.version==='jit-dual-audio-source-scope-v1'&&Array.isArray(s.fingerprints)&&s.fingerprints.length>0&&s.fingerprints.every(f=>f&&typeof f.path==='string'&&f.path.length>0&&Number.isFinite(f.size)&&f.size>=0&&Number.isFinite(f.mtimeMs)&&s.fingerprints.filter(g=>same(f,g)).length===1)&&
+   (s.h264AviCfrRequired===undefined||Array.isArray(s.h264AviCfrRequired)&&s.h264AviCfrRequired.every(f=>s.fingerprints.filter(g=>same(f,g)).length===1));
+ };
+ if(!specific.every(validScope))return no('dual-audio-invalid-source-scope');
+ if(specific.length&&!fingerprint)return no('dual-audio-current-source-fingerprint-required');
+ const relevant=specific.filter(p=>fingerprint&&p.sourceScope!.fingerprints.some(f=>f.path===fingerprint.path));
+ if(relevant.length>1)return no('dual-audio-ambiguous-source-exception');
+ // A same-path stale/disabled exception, including a CFR dependency, wins over
+ // the general capability: it must fail closed rather than silently bypass it.
+ const permission=relevant[0]??general[0];
+ if(!permission)return no(records.length?'dual-audio-source-scope-mismatch':'receiver-target-not-enrolled-for-dual-audio');
+ if(!permission.enabled)return no('receiver-target-not-enrolled-for-dual-audio');
+ if(permission.version!=='jit-dual-audio-permission-v1'||typeof permission.reference!=='string'||!permission.reference.trim()||permission.sinkHash!==cap.sinkHash||permission.implementationFingerprint!==cap.implementation.fingerprint)return no('dual-audio-permission-evidence-mismatch');
  if(permission.sourceScope!==undefined){
   const scope=permission.sourceScope;
   if(scope?.version!=='jit-dual-audio-source-scope-v1'||!Array.isArray(scope.fingerprints)||!scope.fingerprints.length||!scope.fingerprints.every(f=>f&&typeof f.path==='string'&&f.path.length>0&&Number.isFinite(f.size)&&f.size>=0&&Number.isFinite(f.mtimeMs))||!fingerprint||scope.fingerprints.filter(f=>f&&f.path===fingerprint.path&&Number.isFinite(f.size)&&Number.isFinite(f.mtimeMs)&&f.size===fingerprint.size&&f.mtimeMs===fingerprint.mtimeMs).length!==1)return no('dual-audio-source-scope-mismatch');
@@ -42,9 +59,15 @@ export function selectDualAudio(permissions:readonly DualAudioPermission[]|undef
   const plan:DualAudioPlan={version:pair.version,targetProfile,mpeg2,sourceSignature,audioIndices:audio.map((s:any)=>s.index),audioPids:mpeg2?[321,322]:[257,258]};
   return {plan,permission,reason:'explicit-tested-individual-and-bounded-aac-pair-trial'};
  }
- const v=videos[0],[n,d]=String(v.avg_frame_rate??v.r_frame_rate).split('/').map(Number),duration=Number(probe.format?.duration);
+ const v=videos[0],duration=Number(probe.format?.duration);
  const avi=probe.format?.format_name==='avi'&&v.codec_name==='h264'&&v.profile==='High'&&v.pix_fmt==='yuv420p'&&v.field_order==='progressive';
  const wmv=probe.format?.format_name==='asf'&&v.codec_name==='wmv3'&&v.profile==='Main'&&['unknown','progressive',undefined].includes(v.field_order);
+ // ffprobe uses 0/0 for an unavailable ASF average, not a zero-frame video.
+ // Use the same nominal header evidence already allowed when avg is absent.
+ // This does not rewrite VFR PTS or apply CFR. A known incompatible average
+ // must never be overridden, and AVI keeps its original average-rate gate.
+ const rate=wmv&&v.avg_frame_rate==='0/0'?v.r_frame_rate:v.avg_frame_rate??v.r_frame_rate;
+ const [n,d]=String(rate).split('/').map(Number);
  if((!wmv&&!avi)||!(v.width>0&&v.width<=720&&v.height>0&&v.height<=576)||Math.abs(n/d-24000/1001)>.002||!Number.isFinite(n/d)||!Number.isFinite(duration)||duration<=0)return no('dual-audio-video-container-scope-unverified');
  const codec=audio[0].codec_name;
  // WMA v2 ASF headers often omit a channel mask. The tested two-channel decoder
@@ -52,7 +75,7 @@ export function selectDualAudio(permissions:readonly DualAudioPermission[]|undef
  // mixed codecs, multichannel, other rates or other WMA variants.
  if(!(avi?codec==='mp3':['wmapro','wmav2'].includes(codec))||!audio.every((s:any)=>s.codec_name===codec&&Number(s.sample_rate)===48000&&s.channels===2&&(s.channel_layout==='stereo'||codec==='wmav2'&&s.channel_layout===undefined)&&s.time_base===(avi?'1/24000':'1/1000')&&Number.isFinite(Number(s.start_time))&&Math.abs(Number(s.start_time))<=.003&&(avi&&s.duration===undefined||Number.isFinite(Number(s.duration))&&Math.abs(Number(s.duration)-duration)<=.064)))return no('dual-audio-secondary-codec-or-clock-scope-unverified');
  if(!probe.executionDecoders?.includes(codec)||avi&&!probe.executionDecoders?.includes('h264'))return no('dual-audio-decoder-not-verified');
- const sourceSignature=snapshotHash(JSON.stringify({format:probe.format.format_name,duration,video:{codec:v.codec_name,profile:v.profile,width:v.width,height:v.height,rate:v.avg_frame_rate??v.r_frame_rate},audio:audio.map((s:any)=>({index:s.index,codec:s.codec_name,rate:s.sample_rate,channels:s.channels,layout:s.channel_layout,timebase:s.time_base,start:s.start_time,duration:s.duration}))}));
+ const sourceSignature=snapshotHash(JSON.stringify({format:probe.format.format_name,duration,video:{codec:v.codec_name,profile:v.profile,width:v.width,height:v.height,rate},audio:audio.map((s:any)=>({index:s.index,codec:s.codec_name,rate:s.sample_rate,channels:s.channels,layout:s.channel_layout,timebase:s.time_base,start:s.start_time,duration:s.duration}))}));
  const plan:DualAudioPlan={version:avi?'avi-h264-two-mp3-48k-stereo-v1':codec==='wmav2'?'wmv3-two-wmav2-48k-stereo-v1':'wmv3-two-wmapro-48k-stereo-v1',targetProfile,mpeg2,sourceSignature,audioIndices:audio.map((s:any)=>s.index),audioPids:mpeg2?[321,322]:[257,258]};
  return {plan,permission,reason:'explicit-tested-individual-and-bounded-source-layout'};
 }
