@@ -11,7 +11,7 @@ import {acquireCapability} from '../src/playback-shadow-store.js';
 const sink='http-get:*:video/vnd.dlna.mpeg-tts:DLNA.ORG_PN=AVC_TS_JP_AAC_T';
 const server=['Linux UPnP/1.0 Intel_SDK_for_UPnP_devices/1.2'];
 function xml(model='Alternate-series',renderer=false,vendor='TOSHIBA TVS REGZA'){
- return `<root><manufacturer>${vendor}</manufacturer><modelName>${model}</modelName><deviceType>urn:schemas-upnp-org:device:${renderer?'MediaRenderer':'MediaServer'}:1</deviceType>`+
+ return `<root><manufacturer>${vendor}</manufacturer><modelDescription>TOSHIBA LCDTV</modelDescription><modelName>${model}</modelName><deviceType>urn:schemas-upnp-org:device:${renderer?'MediaRenderer':'MediaServer'}:1</deviceType>`+
  (renderer?['ConnectionManager','AVTransport','RenderingControl']:['ConnectionManager','ContentDirectory']).map(s=>`<service><serviceType>urn:schemas-upnp-org:service:${s}:1</serviceType><controlURL>/Media${renderer?'Renderer':'Server'}/${s}/Control</controlURL><SCPDURL>/xml/${s}.xml</SCPDURL></service>`).join('')+'</root>';
 }
 function cap(model='Alternate-series',renderer=false):CapabilitySnapshot {
@@ -34,9 +34,20 @@ test('renderer profile keeps VFR and auto dual, including a model identical to a
  const c=cap('Representative-model',true);assert.equal(c.playbackProfile?.id,'regza-intel-renderer-vfr-v1');
  assert.equal(automaticReceiverCfr(c,probe(),true),undefined);assert.ok(selectDualAudio([],c,probe(),'legacy-jp-observed',false,true,fp).plan);
 });
+test('mixed receivers and source formats cannot carry a previous CFR/dual selection into another request',async()=>{
+ const cfr=cap('Mixed-profile'),vfr=cap('Other-profile',true),unknown={...cfr,playbackProfile:undefined};
+ const cases=[{c:cfr,p:probe(),cfr:true,dual:true},{c:vfr,p:probe(),cfr:false,dual:true},{c:unknown,p:probe(),cfr:false,dual:false},{c:cfr,p:{...probe(),format:{format_name:'mov,mp4',duration:'30'}},cfr:false,dual:false}];
+ await Promise.all(Array.from({length:40},async(_,i)=>{const r=cases[i%cases.length];await new Promise(resolve=>setTimeout(resolve,i%3));assert.equal(!!automaticReceiverCfr(r.c,r.p,true),r.cfr);assert.equal(!!selectDualAudio([],r.c,r.p,'legacy-jp-observed',false,true,fp).plan,r.dual);}));
+});
+test('technical scope rejects observed out-of-scope Complex/30fps and unknown AVI scan without source enrollment',()=>{
+ const p=probe();p.streams[0].profile='Complex';p.streams[0].avg_frame_rate='30000/1001';assert.equal(automaticReceiverCfr(cap(),p,true),undefined);assert.equal(selectDualAudio([],cap(),p,'legacy-jp-observed',false,true,fp).plan,undefined);
+ const a=probe(true);delete a.streams[0].field_order;assert.equal(automaticReceiverCfr(cap(),a,true),undefined);assert.equal(selectDualAudio([],cap(),a,'legacy-jp-observed',false,true,fp).plan,undefined);
+});
 test('manufacturer/model/UA or Source advertisement alone does not infer receiver compatibility',()=>{
  assert.equal(receiverPlaybackProfile(xml('Representative-model',false,'Other maker'),server,''),undefined);
  assert.equal(receiverPlaybackProfile(xml(),['Generic UPnP/1.0'],''),undefined);
+ assert.equal(receiverPlaybackProfile(xml().replace('TOSHIBA LCDTV','TOSHIBA RECORDER'),server,''),undefined);
+ assert.equal(receiverPlaybackProfile(xml().replace('<modelDescription>TOSHIBA LCDTV</modelDescription>',''),server,''),undefined);
  assert.equal(receiverPlaybackProfile(xml().replace('ContentDirectory:1','Other:1'),server,''),undefined);
  assert.equal(receiverPlaybackProfile(xml('Other',true),server,''),undefined);
  assert.equal(receiverPlaybackProfile(xml(),server,sink),undefined);

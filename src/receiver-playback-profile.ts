@@ -4,7 +4,7 @@ import type {DualAudioPermission} from './jit-dual-audio.js';
 import type {ReceiverCfr} from './receiver-cfr-trial.js';
 import assert from 'node:assert/strict';
 
-export const RECEIVER_PLAYBACK_VERSION='receiver-playback-profile-v1';
+export const RECEIVER_PLAYBACK_VERSION='receiver-playback-profile-v2';
 export interface ReceiverPlaybackProfile {
  version:typeof RECEIVER_PLAYBACK_VERSION;
  id:'regza-intel-server-cfr-v1'|'regza-intel-renderer-vfr-v1';
@@ -17,11 +17,15 @@ export interface ReceiverPlaybackProfile {
 export function receiverPlaybackProfile(xml:string,servers:readonly string[],sink:string):ReceiverPlaybackProfile|undefined {
  const manufacturer=/<(?:\w+:)?manufacturer>([^<]*)</i.exec(xml)?.[1]?.trim()??'';
  if(!/^(?:TOSHIBA(?:\s+TVS\s+REGZA)?|TVS\s+REGZA)(?:\s+CORPORATION)?$/i.test(manufacturer))return;
+ const productClass=/<(?:\w+:)?modelDescription>([^<]*)</i.exec(xml)?.[1]?.trim()??'';
+ // The same manufacturer/Intel DMS layout is also used by recorders.
+ // Require observed TV product-class evidence, never a model-number allowlist.
+ if(!/\b(?:OLEDTV|LCDTV|DTV|TELEVISION)\b/i.test(productClass)||/recorder|blu.?ray|\bHDD\b|\bDVD\b/i.test(productClass))return;
  const f=endpointFamilyFeatures(xml,servers),family=classifyClientFamily(f.signals);
  if(family.family!=='intel-upnp-layout'||family.status!=='classified')return;
  const service=(s:string)=>f.services.includes('urn:schemas-upnp-org:service:'+s+':1');
  const role=(s:string)=>f.roles.includes('urn:schemas-upnp-org:device:'+s+':1');
- const evidence=['current-description-regza-vendor','intel-stack-and-cm-service-layout','current-get-protocol-info'];
+ const evidence=['current-description-regza-vendor','current-description-television-class','intel-stack-and-cm-service-layout','current-get-protocol-info'];
  if(role('MediaServer')&&!role('MediaRenderer')&&service('ContentDirectory')&&service('ConnectionManager')&&sink.trim()==='')return {version:RECEIVER_PLAYBACK_VERSION,id:'regza-intel-server-cfr-v1',evidence:[...evidence,'server-only-role','empty-sink-is-not-codec-proof'],verification:'inferred-compatibility-not-individual-test'};
  if(role('MediaRenderer')&&!role('MediaServer')&&service('ConnectionManager')&&service('AVTransport')&&service('RenderingControl')&&sink.split(',').some(s=>/^http-get:\*:(?:video\/vnd\.dlna\.mpeg-tts|video\/mpeg):/.test(s)&&/(?:^|;)DLNA\.ORG_PN=AVC_TS_JP_AAC_T(?:;|$)/.test(s.split(':').slice(3).join(':'))))return {version:RECEIVER_PLAYBACK_VERSION,id:'regza-intel-renderer-vfr-v1',evidence:[...evidence,'renderer-avtransport-renderingcontrol','sink-avc-ts-jp-aac'],verification:'inferred-compatibility-not-individual-test'};
 }

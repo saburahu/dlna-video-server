@@ -19,8 +19,8 @@
 
 | プロファイル | 必須の現在情報 | WMV3 / H.264 AVI | AAC 2音声 |
 |---|---|---|---|
-| regza-intel-server-cfr-v1 | Toshiba/TVS REGZA系manufacturer、Intel stackとCM URL構造、MediaServerのみ、ContentDirectory + CM、実GetProtocolInfoのSinkが空 | 適格なSD入力を既存29.97fps CFRで出力 | 適格な組合せに自動適用 |
-| regza-intel-renderer-vfr-v1 | 同上のvendor/stack構造、MediaRendererのみ、AVTransport + RenderingControl + CM、実SinkにAVC_TS_JP_AAC_T | 通常VFRを維持 | 適格な組合せに自動適用 |
+| regza-intel-server-cfr-v1 | Toshiba/TVS REGZA系manufacturer、テレビ製品種別、Intel stackとCM URL構造、MediaServerのみ、ContentDirectory + CM、実GetProtocolInfoのSinkが空 | 適格なSD入力を既存29.97fps CFRで出力 | 適格な組合せに自動適用 |
+| regza-intel-renderer-vfr-v1 | 同上のvendor/TV製品種別/stack構造、MediaRendererのみ、AVTransport + RenderingControl + CM、実SinkにAVC_TS_JP_AAC_T | 通常VFRを維持 | 適格な組合せに自動適用 |
 | その他・矛盾・情報不足 | 上記のいずれにも合致しない | 従来経路・既存例外を維持 | 新しい自動許可は付けない |
 
 MediaServerのSource広告を受信能力のSinkとして流用しない。空Sink自体はcodec対応の証拠ではない。
@@ -106,3 +106,70 @@ PC上のCFR/2音声HTTP成功をテレビ成功に数えない。既存の研究
 Privateの既存PCR scanner待機テストが一度タイムアウトした。元ログを保持し、
 最終候補は並列度4の全件再試験を行い上記の成功を確認した。判定条件は緩めていない。
 最初のHTTP監査が音声Seek診断やプリロール、画質警告を誤拒否したログも保持している。
+
+## 実機観測再生による追加確認（2026-10-26）
+
+生のdescription XML、GetProtocolInfo SOAP応答、実Browseヘッダー/XMLを保存記録から再生した。
+代表テレビ2台は同じIntel系だが、次の相違は実観測に存在し、テスト用の仮定ではなかった。
+
+| 観測項目 | CFR代表テレビ | VFR代表テレビ |
+|---|---|---|
+| 実device role | MediaServerのみ | MediaRendererのみ |
+| 実サービス | ContentDirectory / ConnectionManager | AVTransport / RenderingControl / ConnectionManager |
+| CM URL構造 | MediaServer系 | MediaRenderer系 |
+| 実Sink | 空 | AVC_TS_JP_AAC_Tを含む非空Sink |
+| 実製品種別記述 | TOSHIBA OLEDTV | TOSHIBA LCDTV |
+| 実HTTP Browse UA | Intel SDK系 | Intel SDK系 |
+
+型番、UDN、IPを除去・変更しても同じ結果になる。製品種別はテレビであることの補強に使い、
+OLEDだからCFR、LCDだからVFRという規則にはしていない。
+**空SinkやDMS roleだけではCFRの必要性を証明できない。** 実機のCFR/VFR成功知見と
+上記構成の関連に基づく推定であり、別型番での成功証明ではない。
+
+同メーカーのレコーダーにもIntel DMS/空Sinkがある反例を発見した。
+旧v1判定はこれを含め得たため、v2では現在のmodelDescriptionにテレビ製品種別を要求し、
+レコーダー記述を拒否する。製品種別不明、混在role、矛盾する実装、能力不足は自動拡張しない。
+従来のJIT/fallbackおよび明示例外は維持するが、CFRが必要な未知機をVFRで再生できるとは主張しない。
+
+`test/fixtures/receiver-observations.json`は観測XML/プロトコル/要求を基に識別値だけを匿名化したもの。
+`receiver-observation-replay.test.ts`はこれをproduction readerへHTTP/SOAPで再生する。
+`PT3_RECEIVER_OBSERVATIONS`を指定するとGit外の未加工記録でも同じテストを実行できる。
+生記録、実個体情報、実素材情報は配布・Public履歴に含めない。
+
+Public既定の実用範囲:
+
+- WMV3 Main + WMA v2: 既存のSD/23.976fps近傍/48kHz stereo等の条件内で自動CFR/VFRと2音声。
+- H.264 High/progressive AVI + MP3: 同様の既存適格条件で自動CFR/VFRと2音声。
+- WMV3 + WMA Pro: 一般開放しない。明示的入力例外と既知EOF制限は独立して維持。
+- MP4/MKV等: 従来JITとAAC pair等の既存適格性を維持。別コンテナをCFRへ一律変更しない。
+- WMV3 Complex/29.97fps、走査構造が不明なAVI等: 今回の自動CFR/2音声の適格範囲とは分ける。
+  拒否・1音声fallback・既存JITのどれになるかは従来判定による。設定追加で適格性を偽装しない。
+
+WMA Proの一般化には、配布可能な共通PCM時計/索引、自然EOFとSeekの共通時刻定義、
+ソース変更/索引破損時の拒否、一般素材のA/V・EOF回帰が不足する。今回追加実装しない。
+64ms監査、既知の異常素材制限は維持する。
+
+Private向けフォルダー交換ラッパーは既存control.mjs stop/backup/startを再利用する。
+アプリのみ交換し、ライブ許可・設定を一切書き換えない。既存ZP2/Xの例外もそのまま残す。
+旧アプリを退避し、復旧時も現在のcatalog/設定/許可を古いバックアップで上書きしない。
+
+### 今回の最終結果
+
+Private: 型チェック/ビルド成功、607件中606成功・既存skip1・失敗0。
+Public: 型チェック/ビルド成功、546件中545成功・既存skip1・失敗0。
+上記には匿名化観測再生3件と、Git外の未加工観測再生3件を含む。
+新しいCFR/VFR選択の異種要求40件を混在させ、前要求の選択が持ち越されないことも確認した。
+
+観測profileで既存成功素材と未登録の別WMV3 Main/WMA v2・H.264 AVI/MP3を検証した。
+CFR系16有限区間、VFR系22有限区間でBrowse URL、2 AAC PID、Seek、TS/64ms、cleanupが成功。
+動画ごとのCFR/2音声許可は空にした。WMA Proだけは別の明示的診断入力例外を維持した。
+Complex/29.97fps入力は実HTTPで1音声fallbackになり、想定外の2音声成功とは数えていない。
+走査構造が不明な別AVIは適格性不足として分け、実probeでprogressiveと確認できた別AVIを使用した。
+
+**内容照合は一括合格にしていない。** 追加WMV冒頭の副音声は相関0.96265で既存診断基準0.97未達。
+他の追加位置とAVIでは基準を満たす。CFR/VFRの対応する0/12/120秒・両音声の各2.5秒PCMは
+バイト一致し、今回の映像profile選択で音声差が増えた証拠はない。元の未達ログを保持する。
+この入力の音質と実機での受容性は別途確認し、閾値を下げて合格にしない。
+
+新候補は実機確認用であり正式Release合格ではない。
+両版のmain/タグ/Releaseは維持し、実サーバーへの更新はユーザーの実行段階まで行わない。
