@@ -1,3 +1,4 @@
+import {receiverPlaybackProfile} from './receiver-playback-profile.js';
 import {sourceProtection} from './source-protection.js';
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
@@ -60,7 +61,8 @@ export async function acquireCapability(device: RegisteredDmp, signal: AbortSign
   if (!sink&&(!device.allowEmptySink||!device.deviceId)) throw new Error('Empty Sink advertisement');
   const implementation=classifyClientFamily(endpointFamilyFeatures(xml,[descriptionResponse.headers.get('server')??'']).signals);
   return { deviceId: actualId, remoteIp: normalizedIp(device.remoteIp), controlUrl: control.href, sink, sinkHash: snapshotHash(sink), acquiredAt: new Date().toISOString(), origin: 'current-read',
-    implementation:{version:implementation.version,fingerprint:implementation.fingerprint,family:implementation.family} };
+    implementation:{version:implementation.version,fingerprint:implementation.fingerprint,family:implementation.family},
+    playbackProfile:receiverPlaybackProfile(xml,[descriptionResponse.headers.get('server')??''],sink) };
 }
 
 /** Serial bounded, cache-only work, after actual response. Never spawns a probe/encoder. */

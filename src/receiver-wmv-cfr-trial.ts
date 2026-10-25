@@ -1,3 +1,4 @@
+import {automaticReceiverCfr} from './receiver-playback-profile.js';
 import {H264_AVI_CFR,matchingH264AviCfrTrial,type ReceiverH264AviCfrTrial} from './receiver-h264-avi-cfr-trial.js';
 import {snapshotHash,type CapabilitySnapshot,type Fingerprint} from './playback-shadow.js';
 import {receiverCfrTrial,type ReceiverCfrTrial,type ReceiverCfr} from './receiver-cfr-trial.js';
@@ -60,6 +61,13 @@ export function evaluateReceiverWmvCfrTrial(trials:ReceiverWmvCfrTrial[]|undefin
 export function matchingReceiverWmvCfrTrial(trials:ReceiverWmvCfrTrial[]|undefined,cap:CapabilitySnapshot|undefined,probe:any,avc:boolean,fingerprint:Fingerprint|undefined){
  return evaluateReceiverWmvCfrTrial(trials,cap,probe,avc,fingerprint).trial;
 }
-export function receiverVideoCfrTrial(avi:ReceiverCfrTrial[]|undefined,wmv:ReceiverWmvCfrTrial[]|undefined,cap:CapabilitySnapshot|undefined,probe:any,avc:boolean,fingerprint:Fingerprint,h264?:ReceiverH264AviCfrTrial[]):ReceiverCfr|undefined{
- return matchingReceiverWmvCfrTrial(wmv,cap,probe,avc,fingerprint)?WMV_RECEIVER_CFR:receiverCfrTrial(avi,cap,probe,avc)??(matchingH264AviCfrTrial(h264,cap,probe,avc,fingerprint)?H264_AVI_CFR:undefined);
+export function receiverVideoCfrTrial(avi:ReceiverCfrTrial[]|undefined,wmv:ReceiverWmvCfrTrial[]|undefined,cap:CapabilitySnapshot|undefined,probe:any,avc:boolean,fingerprint:Fingerprint,h264?:ReceiverH264AviCfrTrial[],automaticBound=false):ReceiverCfr|undefined{
+ const explicit=matchingReceiverWmvCfrTrial(wmv,cap,probe,avc,fingerprint)?WMV_RECEIVER_CFR:receiverCfrTrial(avi,cap,probe,avc)??(matchingH264AviCfrTrial(h264,cap,probe,avc,fingerprint)?H264_AVI_CFR:undefined);
+ if(explicit)return explicit;
+ // Disabled, stale, ambiguous or malformed relevant exceptions veto inference.
+ const own=(t:{deviceId:string})=>t.deviceId===cap?.deviceId;
+ if(avi?.some(own)&&probe?.streams?.some((s:any)=>s.codec_name==='msmpeg4v3'))return;
+ if(wmv?.some(t=>own(t)&&(!t.videoEvidence?.fingerprint||t.videoEvidence.fingerprint.path===fingerprint.path)))return;
+ if(h264?.some(t=>own(t)&&(!t.evidence?.fingerprint||t.evidence.fingerprint.path===fingerprint.path)))return;
+ return automaticBound?automaticReceiverCfr(cap,probe,avc):undefined;
 }

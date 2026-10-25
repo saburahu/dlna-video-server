@@ -110,7 +110,7 @@ export function createAutomaticJitClients(directory:string,trace:(event:string,d
   let selected:ReturnType<typeof automaticClientSelection>;try{selected=automaticClientSelection(s.endpoints,s.requests,p);}catch{return {reason:'invalid-automatic-binding-cache'};}
   if(!selected.trial||!selected.endpoint)return {...selected,binding:undefined,observed};
   const implementation={...selected.trial.automaticEvidence};delete implementation.inputPolicy;
-  const binding=snapshotHash(JSON.stringify({version:AUTOMATIC_CLIENT_VERSION,ip,deviceId:selected.endpoint.capability.deviceId,control:selected.endpoint.device.controlUrl,sinkHash:selected.endpoint.capability.sinkHash,target:selected.profile!.id,recipe:selected.trial.recipeFingerprint,implementation}));
+  const binding=snapshotHash(JSON.stringify({version:AUTOMATIC_CLIENT_VERSION,ip,deviceId:selected.endpoint.capability.deviceId,control:selected.endpoint.device.controlUrl,sinkHash:selected.endpoint.capability.sinkHash,target:selected.profile!.id,recipe:selected.trial.recipeFingerprint,implementation,playbackProfile:selected.endpoint.capability.playbackProfile}));
   return {...selected,binding,observed};
  }
  return {observe,resolve,peers:()=>[...states].map(([remoteIp,s])=>({remoteIp,fresh:fresh(s),endpoints:s.endpoints})),async refresh(remote:string){await pending.get(remote.replace(/^::ffff:/,''));},async idle(){await tail;},async close(){closed=true;for(const ip of timers.keys())cancelTimer(ip);await tail;},status:()=>({peers:states.size,pending:pending.size,retries:timers.size,revision})};

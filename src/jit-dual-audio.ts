@@ -1,10 +1,11 @@
+import {automaticDualAudioPermission} from './receiver-playback-profile.js';
 import assert from 'node:assert/strict';
 import {snapshotHash,type CapabilitySnapshot,type Fingerprint} from './playback-shadow.js';
 import {JitAudioClock} from './jit-audio-clock.js';
 import {containerAacPair} from './container-aac-pair.js';
 import {aacPairAuditArguments} from './aac-pair-audit.js';
 
-/** Operator enrollment of a tested individual/target; never family-wide defaults. */
+/** Explicit individual/source overrides. Automatic technical profiles are separate. */
 export interface DualAudioPermission {
  version:'jit-dual-audio-permission-v1';enabled:boolean;deviceId:string;sinkHash:string;
  implementationFingerprint:string;targetProfile:string;reference:string;
@@ -39,7 +40,8 @@ export function selectDualAudio(permissions:readonly DualAudioPermission[]|undef
  if(relevant.length>1)return no('dual-audio-ambiguous-source-exception');
  // A same-path stale/disabled exception, including a CFR dependency, wins over
  // the general capability: it must fail closed rather than silently bypass it.
- const permission=relevant[0]??general[0];
+ const automaticPermission=automaticDualAudioPermission(cap,targetProfile,mpeg2);
+ const permission=relevant[0]??general[0]??automaticPermission;
  if(!permission)return no(records.length?'dual-audio-source-scope-mismatch':'receiver-target-not-enrolled-for-dual-audio');
  if(!permission.enabled)return no('receiver-target-not-enrolled-for-dual-audio');
  if(permission.version!=='jit-dual-audio-permission-v1'||typeof permission.reference!=='string'||!permission.reference.trim()||permission.sinkHash!==cap.sinkHash||permission.implementationFingerprint!==cap.implementation.fingerprint)return no('dual-audio-permission-evidence-mismatch');
@@ -57,7 +59,7 @@ export function selectDualAudio(permissions:readonly DualAudioPermission[]|undef
  if(pair){
   const v=videos[0],sourceSignature=snapshotHash(JSON.stringify({scope:pair.version,format:{name:probe.format.format_name,duration:Number(probe.format.duration)},video:{index:v.index,codec:v.codec_name,profile:v.profile,pixels:v.pix_fmt,width:v.width,height:v.height,field:v.field_order,rate:v.avg_frame_rate,frameSequence:probe.inputPictureStructure},audio:audio.map((s:any)=>({index:s.index,codec:s.codec_name,profile:s.profile,rate:Number(s.sample_rate),channels:s.channels,layout:s.channel_layout,timebase:s.time_base,start:Number(s.start_time)})),endpoints:pair.endpoints}));
   const plan:DualAudioPlan={version:pair.version,targetProfile,mpeg2,sourceSignature,audioIndices:audio.map((s:any)=>s.index),audioPids:mpeg2?[321,322]:[257,258]};
-  return {plan,permission,reason:'explicit-tested-individual-and-bounded-aac-pair-trial'};
+  return {plan,permission,reason:permission===automaticPermission?'inferred-receiver-profile-and-bounded-aac-pair':'explicit-tested-individual-and-bounded-aac-pair-trial'};
  }
  const v=videos[0],duration=Number(probe.format?.duration);
  const avi=probe.format?.format_name==='avi'&&v.codec_name==='h264'&&v.profile==='High'&&v.pix_fmt==='yuv420p'&&v.field_order==='progressive';
@@ -77,7 +79,7 @@ export function selectDualAudio(permissions:readonly DualAudioPermission[]|undef
  if(!probe.executionDecoders?.includes(codec)||avi&&!probe.executionDecoders?.includes('h264'))return no('dual-audio-decoder-not-verified');
  const sourceSignature=snapshotHash(JSON.stringify({format:probe.format.format_name,duration,video:{codec:v.codec_name,profile:v.profile,width:v.width,height:v.height,rate},audio:audio.map((s:any)=>({index:s.index,codec:s.codec_name,rate:s.sample_rate,channels:s.channels,layout:s.channel_layout,timebase:s.time_base,start:s.start_time,duration:s.duration}))}));
  const plan:DualAudioPlan={version:avi?'avi-h264-two-mp3-48k-stereo-v1':codec==='wmav2'?'wmv3-two-wmav2-48k-stereo-v1':'wmv3-two-wmapro-48k-stereo-v1',targetProfile,mpeg2,sourceSignature,audioIndices:audio.map((s:any)=>s.index),audioPids:mpeg2?[321,322]:[257,258]};
- return {plan,permission,reason:'explicit-tested-individual-and-bounded-source-layout'};
+ return {plan,permission,reason:permission===automaticPermission?'inferred-receiver-profile-and-bounded-source-layout':'explicit-tested-individual-and-bounded-source-layout'};
 }
 export function dualAudioBinding(binding:string|undefined,plan:DualAudioPlan|undefined){return binding&&plan?snapshotHash(JSON.stringify({binding,dualAudio:plan})):binding;}
 

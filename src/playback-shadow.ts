@@ -14,6 +14,7 @@ export interface CapabilitySnapshot {
   deviceId: string; remoteIp: string; controlUrl: string; sink: string; sinkHash: string;
   acquiredAt: string; origin: 'current-read' | 'cached-read';
   implementation?: {version:string; fingerprint:string; family?:string};
+  playbackProfile?: import('./receiver-playback-profile.js').ReceiverPlaybackProfile;
 }
 export interface ScopedObservation {
   deviceId: string; sinkHash: string; observation: CompatibilityObservation;

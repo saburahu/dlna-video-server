@@ -1,3 +1,4 @@
+import {automaticReceiverCfr} from './receiver-playback-profile.js';
 import {evaluateH264AviCfrTrial,matchingH264AviCfrTrial,type ReceiverH264AviCfrTrial} from './receiver-h264-avi-cfr-trial.js';
 import {selectDualAudio,dualAudioBinding,type DualAudioPermission} from './jit-dual-audio.js';
 import {scopedWmaInputPermission,wmaInputBinding,type WmaInputPermission} from './wma-input-permission.js';
@@ -154,7 +155,7 @@ export function createExperimentalJit(directory: string, trace: JitTrace, overri
       v.maxDpbFrames < 1 || v.maxBitrate < 10e6 || v.maxCpbBits < 10e6 || t.framing !== 'jp-content-packet' || t.seek !== 'time' || t.profileName !== 'AVC_TS_JP_AAC_T')) return;
     if (!trial&&!parseSinkProtocolInfo(cap.sink).some(s=>s.protocol==='http-get'&&s.mime===profile.transport.value.mime&&s.profileName===profile.transport.value.profileName)) return;
     if (!trial&&!p.policy.observations.some(o => o.deviceId === cap.deviceId && o.sinkHash === cap.sinkHash && o.observation.profileId === p.targetProfile && o.observation.outcome === 'success' && o.observation.framing === 'jp-content-packet')) return;
-    const correction=receiverVideoCfrTrial(p._admission?.binding?p.receiverCfrTrials:undefined,p._admission?.binding?p.receiverWmvCfrTrials:undefined,cap,entry.lightweightProbe,!isMpeg2JitTarget(profile),entry.fingerprint,p._admission?.binding?p.receiverH264AviCfrTrials:undefined);
+    const correction=receiverVideoCfrTrial(p._admission?.binding?p.receiverCfrTrials:undefined,p._admission?.binding?p.receiverWmvCfrTrials:undefined,cap,entry.lightweightProbe,!isMpeg2JitTarget(profile),entry.fingerprint,p._admission?.binding?p.receiverH264AviCfrTrials:undefined,!!p._admission?.binding&&p.targetProfile==='legacy-jp-observed');
     return { protocolInfo: isMpeg2JitTarget(profile)?MPEG2_JIT_PROTOCOL:JIT_PROTOCOL, durationSeconds: item?.durationSeconds??admitted!.duration, targetProfile: p.targetProfile,...(p._admission?.binding?{clientBinding:dualAudioBinding(receiverCfrBinding(wmaInputBinding(p._admission.binding,scopedWmaInputPermission(p.wmaInputPermissions,cap,p.targetProfile,entry.fingerprint,entry.lightweightProbe)),correction),selectDualAudio(p.dualAudioPermissions,cap,entry.lightweightProbe,p.targetProfile,isMpeg2JitTarget(profile),!!p._admission?.binding,entry.fingerprint,correction).plan)}:{}) };
   }
   return {
@@ -217,7 +218,7 @@ export function createExperimentalJit(directory: string, trace: JitTrace, overri
         const bindingParameter=new URL(req.url??'/', 'http://localhost').searchParams.get('clientBinding');
         const boundCap=p.capabilities.find(c=>normalizedIp(c.remoteIp)===remote);
         const boundProfile=p.policy.profiles.find(v=>v.id===p.targetProfile)!;
-        const boundCorrection=receiverVideoCfrTrial(p._admission?.binding?p.receiverCfrTrials:undefined,p._admission?.binding?p.receiverWmvCfrTrials:undefined,boundCap,entry.lightweightProbe,!isMpeg2JitTarget(boundProfile),entry.fingerprint,p._admission?.binding?p.receiverH264AviCfrTrials:undefined);
+        const boundCorrection=receiverVideoCfrTrial(p._admission?.binding?p.receiverCfrTrials:undefined,p._admission?.binding?p.receiverWmvCfrTrials:undefined,boundCap,entry.lightweightProbe,!isMpeg2JitTarget(boundProfile),entry.fingerprint,p._admission?.binding?p.receiverH264AviCfrTrials:undefined,!!p._admission?.binding&&p.targetProfile==='legacy-jp-observed');
         const expectedBinding=dualAudioBinding(receiverCfrBinding(wmaInputBinding(p._admission?.binding,scopedWmaInputPermission(p.wmaInputPermissions,boundCap,p.targetProfile,entry.fingerprint,entry.lightweightProbe)),boundCorrection),selectDualAudio(p.dualAudioPermissions,boundCap,entry.lightweightProbe,p.targetProfile,isMpeg2JitTarget(boundProfile),!!p._admission?.binding,entry.fingerprint,boundCorrection).plan);
         if(advertised.clientBinding||bindingParameter)assert.ok(p._admission?.binding&&bindingParameter===expectedBinding&&advertised.clientBinding===expectedBinding,'Missing, stale or different-client Browse binding');
         const current = await fs.stat(entry.fingerprint.path);
@@ -251,19 +252,20 @@ export function createExperimentalJit(directory: string, trace: JitTrace, overri
           assert.ok(actual&&JSON.stringify(actual.execution.transport)===JSON.stringify(p.policy.profiles.find(v=>v.id===p.targetProfile)!.transport.value), 'Advertised target cannot execute');
           stage('CATALOG_DECISION_CONFIRMED',{strategy:actual.execution.strategy,transforms:actual.execution.transforms,targetProfile:p.targetProfile,verification:actual.verification});
         }
-        const receiverCfr=receiverVideoCfrTrial(p._admission?.binding?p.receiverCfrTrials:undefined,p._admission?.binding?p.receiverWmvCfrTrials:undefined,cap,inspected.probe,!isMpeg2JitTarget(selected.profile),entry.fingerprint,p._admission?.binding?p.receiverH264AviCfrTrials:undefined);
+        const receiverCfr=receiverVideoCfrTrial(p._admission?.binding?p.receiverCfrTrials:undefined,p._admission?.binding?p.receiverWmvCfrTrials:undefined,cap,inspected.probe,!isMpeg2JitTarget(selected.profile),entry.fingerprint,p._admission?.binding?p.receiverH264AviCfrTrials:undefined,!!p._admission?.binding&&p.targetProfile==='legacy-jp-observed');
+        const automaticCfr=!!receiverCfr&&automaticReceiverCfr(cap,inspected.probe,!isMpeg2JitTarget(selected.profile))===receiverCfr&&!matchingReceiverWmvCfrTrial(p.receiverWmvCfrTrials,cap,inspected.probe,true,entry.fingerprint)&&!matchingH264AviCfrTrial(p.receiverH264AviCfrTrials,cap,inspected.probe,true,entry.fingerprint)&&!(receiverCfr==='receiver-cfr-30000-1001-v1'&&p.receiverCfrTrials?.some(t=>t.deviceId===cap.deviceId));
         const dual=selectDualAudio(p.dualAudioPermissions,cap,inspected.probe,p.targetProfile,isMpeg2JitTarget(selected.profile),!!p._admission?.binding,entry.fingerprint,receiverCfr);
         assert.equal(dualAudioBinding(receiverCfrBinding(wmaInputBinding(p._admission?.binding,scopedWmaInputPermission(p.wmaInputPermissions,cap,p.targetProfile,entry.fingerprint,inspected.probe)),receiverCfr),dual.plan),advertised.clientBinding,'Receiver audio/CFR admission changed between Browse and GET');
         stage('WMA_INPUT_SELECTION',{scoped:!!scopedWmaInputPermission(p.wmaInputPermissions,cap,p.targetProfile,entry.fingerprint,inspected.probe),automaticInputPolicy:p.automaticClients?.wmaInputs,clock:'unchanged existing conversion; input permission does not enable common PCM/index clock'});
         stage('DUAL_AUDIO_SELECTION',{plan:dual.plan,reason:dual.reason,deviceId:cap.deviceId,target:p.targetProfile,otherReceiversUnchanged:true});
-        stage('RECEIVER_CFR_TRIAL',{receiverCfr,deviceId:cap.deviceId,h264AviReason:evaluateH264AviCfrTrial(p._admission?.binding?p.receiverH264AviCfrTrials:undefined,cap,inspected.probe,!isMpeg2JitTarget(selected.profile),entry.fingerprint).reason,wmvReason:evaluateReceiverWmvCfrTrial(p._admission?.binding?p.receiverWmvCfrTrials:undefined,cap,inspected.probe,!isMpeg2JitTarget(selected.profile),entry.fingerprint).reason,scope:'explicit individual trial; original source selection, audio and target recipe retained'});
+        stage('RECEIVER_CFR_TRIAL',{receiverCfr,deviceId:cap.deviceId,h264AviReason:evaluateH264AviCfrTrial(p._admission?.binding?p.receiverH264AviCfrTrials:undefined,cap,inspected.probe,!isMpeg2JitTarget(selected.profile),entry.fingerprint).reason,wmvReason:evaluateReceiverWmvCfrTrial(p._admission?.binding?p.receiverWmvCfrTrials:undefined,cap,inspected.probe,!isMpeg2JitTarget(selected.profile),entry.fingerprint).reason,playbackProfile:cap.playbackProfile,scope:automaticCfr?'inferred receiver compatibility profile; technical source gates; pre-CFR runtime input audit':'explicit override or unchanged VFR; original audio/target recipe retained'});
         stage('CURRENT_CAPABILITY', { deviceId: cap.deviceId, sinkHash: cap.sinkHash });
         if (res.destroyed) return;
         const timing=p.policy.profiles.find(v=>v.id===p.targetProfile)!.video.value.timing;
         if(req.method==='GET')assert.ok(!timingPreparing.has(remote),'Previous timing preparation not cleaned up');
         if(req.method==='GET')timingPreparing.add(remote);
         const controller=new AbortController(),cancelAnalysis=()=>controller.abort();res.once('close',cancelAnalysis);
-        const mpeg2=isMpeg2JitTarget(p.policy.profiles.find(v=>v.id===p.targetProfile)!);const timingMode=mpeg2?'original':p.timingPolicy??'auto';
+        const mpeg2=isMpeg2JitTarget(p.policy.profiles.find(v=>v.id===p.targetProfile)!);const timingMode=mpeg2||receiverCfr?'original':p.timingPolicy??'auto';
         const chosen=await deps.timing(directory,entry.fingerprint,timing,inspected.probe,timingMode,{cacheOnly:req.method==='HEAD',signal:controller.signal}).finally(()=>{res.off('close',cancelAnalysis);if(req.method==='GET')timingPreparing.delete(remote);});
         check();
         stage('TIMING_POLICY',{...chosen,requestMethod:req.method,selectionFinal:req.method==='GET',requestedMode:timingMode,selectedPolicy:mpeg2?'mpeg2-receiver-cfr-v1':chosen.clock?'quantized-evidence-v1':'original',sourceFingerprint:entry.fingerprint,unknowns:mpeg2?'Separate provisional MPEG-2 CFR target; receiver live JIT/seek unconfirmed':'Inferred reconstruction; unchanged target level and audio clock'});
@@ -298,9 +300,11 @@ export function createExperimentalJit(directory: string, trace: JitTrace, overri
               ...(advertised.clientBinding?{device,acquireCapability:async(d:RegisteredDmp,signal:AbortSignal)=>{
                 const current=await deps.capability(d,signal);
                 assert.ok(current.deviceId===cap.deviceId&&current.sinkHash===cap.sinkHash&&current.controlUrl===cap.controlUrl&&current.implementation?.fingerprint===cap.implementation?.fingerprint,'Automatic runtime binding changed');
+                assert.deepEqual(current.playbackProfile,cap.playbackProfile,'Receiver playback profile changed');
                 assert.equal(clientPolicy(cached!,remote)?._admission?.binding,p._admission?.binding,'Client admission evidence expired or changed');return current;
               }}:{}),
               reference: { sourceFingerprint: entry.fingerprint, policy: p.policy, targetProfile: p.targetProfile, capabilitySnapshot: cap }, probe: inspected.probe,
+              automaticReceiverCfr:automaticCfr,
               receiverCfrAuthorization:receiverCfr?p.receiverCfrTrials?.find(t=>t.deviceId===cap.deviceId):undefined,
               receiverH264AviCfrAuthorization:receiverCfr?matchingH264AviCfrTrial(p.receiverH264AviCfrTrials,cap,inspected.probe,!isMpeg2JitTarget(selected.profile),entry.fingerprint):undefined,
               receiverWmvCfrAuthorization:receiverCfr?matchingReceiverWmvCfrTrial(p.receiverWmvCfrTrials,cap,inspected.probe,!isMpeg2JitTarget(selected.profile),entry.fingerprint):undefined,
