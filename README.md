@@ -1,6 +1,6 @@
 # DLNA Video Server
 
-[Private／Public共通 v0.4.1 ローカル候補の変更と制限](packaging/release-notes/0.4.1.md)。まだ公開済みの最新版ではありません。
+[Private／Public共通 v0.4.1の変更と既知制限](packaging/release-notes/0.4.1.md)。
 
 **v0.4.1**。限定2音声の条件は[複数音声](docs/MULTI-AUDIO.md)、未解決の音声終端・REGZAレコーダーの復帰不能事象は[既知の問題](docs/KNOWN-ISSUES.md)を確認してください。
 
@@ -56,9 +56,9 @@ TVから見えない場合はDiagnose.cmdを実行してください。Windows�
 
 適格な受信機互換性profileとSD WMV3 Main / WMA Proの技術条件から、素材登録なしで入力を自動選択します。
 再生開始・2音声・SeekのPC検証と、未解決の自然EOF制限は別です。
-[対応条件と検証範囲](WMA_PRO_AUTOMATIC_INPUT.md)を確認してください。未公開候補であり、全WMA Pro・全受信機の保証ではありません。
+[対応条件と検証範囲](WMA_PRO_AUTOMATIC_INPUT.md)を確認してください。技術条件付きの対応であり、全WMA Pro・全受信機の保証ではありません。
 
 ### v0.4.1候補：MKV／1080p MP4の受信機別CFR
 
-互換性プロファイルと入力の技術条件から通常CFRを自動選択します。ZP2系のVFRは維持します。
+互換性プロファイルと入力の技術条件から通常CFRを自動選択します。VFR系受信機の既存処理は維持します。
 [対応条件・安全監査・検証範囲](REGZA_CONTAINER_CFR.md)を確認してください。診断A/B機能は通常版に含めません。

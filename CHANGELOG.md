@@ -2,7 +2,7 @@
 
 ## 0.4.1
 
-個体・配信先・素材に限定した入力許可、独立2音声許可、同期バージョン照合。自然EOFの追加修正は含みません。詳細はpackaging/release-notes/0.4.1.md。
+観測互換性プロファイルによるCFR／VFR・AAC 2音声の自動選択、適格WMV3 MKV／1080p H.264 MP4のCFR、技術条件付きWMA Pro自動入力、既存例外・安全監査の保護を統合。自然EOFの追加修正は含みません。詳細はpackaging/release-notes/0.4.1.md。
 
 ## v0.3.0
 
