@@ -1,6 +1,7 @@
 /** Input execution evidence, independent of receiver/output compatibility.
- * v1 retains its published WMA v2 scope. v2 is explicit opt-in after real
- * ASF source-clock/Seek/EOF checks; wmav1 has no real-source evidence yet. */
+ * This raw v1 gate retains WMA v2. Bounded automaticWmaProInput is separate.
+ * v2 permits the existing WMA Pro execution path, not a corrected PCM clock
+ * or a guarantee of natural EOF; wmav1 has no real-source evidence yet. */
 export type WmaInputPolicy='source-clock-v1'|'source-clock-v2';
 export function wmaInputAllowed(codec:string,rate:number,channels:number,layout:string|undefined,policy:WmaInputPolicy|undefined,videoCodec:string){
  if(!/^wma/.test(codec))return true;

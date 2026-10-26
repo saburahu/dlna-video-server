@@ -1,3 +1,5 @@
+> この資料は入力一般化前の比較記録です。後続候補のWMA Pro対応は [WMA_PRO_AUTOMATIC_INPUT.md](WMA_PRO_AUTOMATIC_INPUT.md) を参照してください。
+
 # v0.4.1 REGZA互換性プロファイルの同等性監査
 
 2026-10-26。Public基準6499009、対応するPrivate基準fc189ea。

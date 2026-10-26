@@ -26,7 +26,7 @@ test('distribution defaults keep input opt-in separate from inferred receiver du
   }
  }
 });
-test('WMA Pro has identical default rejection and symmetric explicit-input mechanics',()=>{
+test('legacy raw v1 gate and explicit WMA Pro exception mechanics remain symmetric',()=>{
  const p=probe(false,'wmapro');
  for(const c of [cap(0),cap(1)]){
   assert.equal(wmaInputAllowed('wmapro',48000,2,'stereo',defaults.automaticClients.wmaInputs,'wmv3'),false);

@@ -80,6 +80,13 @@ test('automatic CFR uses existing video-only 3003 tick grid, audio arguments rem
  assert.equal(corrected[corrected.indexOf('-af')+1],original[original.indexOf('-af')+1]);
  assert.match(corrected[corrected.indexOf('-vf')+1],/fps=30000\/1001:round=near/);
 });
+test('CFR input audit accepts complete video bodies with split prefixes and merged records without losing strict sequence',()=>{
+ const a=new AutomaticCfrInputAudit();a.push('[Parsed_showinfo_0 @ synthetic]');a.push(frame(0,0).replace(/^.*?\] /,''));
+ a.push('[ashowinfo @ synthetic] n:7 pts:2048 pts_time:0.04 fmt:fltp channels:2 chlayout:stereo rate:48000 nb_samples:2048 '+frame(1,.04)+' '+frame(2,.08));
+ assert.equal(a.frames,3);assert.throws(()=>a.push(frame(4,.12)),/sequence/);
+ const bad=new AutomaticCfrInputAudit();bad.push(frame(0,0));assert.throws(()=>bad.push(frame(1,2)),/gap/);
+ const unknown=new AutomaticCfrInputAudit();assert.throws(()=>unknown.push(frame(0,0).replace('pts_time:0','pts_time:N/A')));
+});
 test('production CM reader derives profile from current description rather than saved enrollment',async()=>{
  const deviceId='uuid:synthetic-profile-reader';
  const host=createServer((req,res)=>{res.setHeader('Server',server[0]);res.end(req.method==='POST'?'<Envelope><Body><GetProtocolInfoResponse><Sink></Sink></GetProtocolInfoResponse></Body></Envelope>':xml('No-listed-model').replace('<root>',`<root><UDN>${deviceId}</UDN>`));});

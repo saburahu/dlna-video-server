@@ -173,3 +173,10 @@ Complex/29.97fps入力は実HTTPで1音声fallbackになり、想定外の2音�
 
 新候補は実機確認用であり正式Release合格ではない。
 両版のmain/タグ/Releaseは維持し、実サーバーへの更新はユーザーの実行段階まで行わない。
+
+## 後続候補のWMA Pro自動入力
+
+従来のWMA Pro初期拒否は後続候補で技術条件付き自動入力へ変更しました。
+SD WMV3 Main、WMA Pro stereo、既知の互換性profileで、個体/作品の登録を必須にしません。
+既存例外と64ms監査を維持し、自然EOF問題は未解決です。
+詳細・実測・制限は[WMA_PRO_AUTOMATIC_INPUT.md](WMA_PRO_AUTOMATIC_INPUT.md)を参照してください。

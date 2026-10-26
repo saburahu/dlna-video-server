@@ -40,8 +40,9 @@ export function automaticReceiverCfr(cap:CapabilitySnapshot|undefined,p:any,avc:
  const videos=p?.streams?.filter((s:any)=>s.codec_type==='video')??[],v=videos[0],audios=p?.streams?.filter((s:any)=>s.codec_type==='audio')??[];
  if(videos.length!==1||!(v.width>0&&v.width<=720&&v.height>0&&v.height<=576)||v.pix_fmt!=='yuv420p'||!['progressive','unknown',undefined].includes(v.field_order)||!audios.length||audios.length>2)return;
  const rate=v.avg_frame_rate==='0/0'||v.avg_frame_rate===undefined?v.r_frame_rate:v.avg_frame_rate;
- const [n,d]=String(rate).split('/').map(Number);if(!Number.isFinite(n/d)||Math.abs(n/d-24000/1001)>.002)return;
- if(!audios.every((a:any)=>Number(a.sample_rate)===48000&&a.channels===2))return;
+ const [n,d]=String(rate).split('/').map(Number),wmaPro=audios.every((a:any)=>a.codec_name==='wmapro');
+ if(!Number.isFinite(n/d)||!(wmaPro&&p.format?.format_name==='asf'?[24000/1001,30000/1001]:[24000/1001]).some(r=>Math.abs(n/d-r)<.002))return;
+ if(!audios.every((a:any)=>(wmaPro&&audios.length===1?[44100,48000].includes(Number(a.sample_rate)):Number(a.sample_rate)===48000)&&a.channels===2))return;
  if(p.format?.format_name==='asf'&&v.codec_name==='wmv3'&&v.profile==='Main'&&audios.every((a:any)=>['wmav2','wmapro'].includes(a.codec_name)))return 'receiver-wmv3-cfr-30000-1001-trial-v1';
  if(p.format?.format_name==='avi'&&v.field_order==='progressive'&&audios.every((a:any)=>a.codec_name==='mp3')){
   if(v.codec_name==='h264'&&v.profile==='High')return 'receiver-h264-avi-cfr-30000-1001-trial-v1';
@@ -59,13 +60,18 @@ export class AutomaticCfrInputAudit {
   // Preserve it for diagnostics; actual input/output timing audits still apply.
   if(!audioDiagnostic&&/concealing\s+\d+|corrupt decoded frame/i.test(line))this.concealmentWarnings++;
   if(!audioDiagnostic&&/error while decoding|invalid data found/i.test(line))this.pendingDecodeError=true;
-  if(!/Parsed_showinfo.*\bn:\s*\d+/.test(line))return;
-  const m=/\bn:\s*(\d+).*?pts_time:([\d.eE+-]+).*?\bi:([PTB])/.exec(line);
+  // av_log prefixes and filter bodies may be on different lines, and multiple
+  // bodies can share one line. Recognize the complete video body, never an
+  // audio n:/pts: counter. Sequence/PTS validation remains strict below.
+  for(const record of line.split(/(?=\bn:\s*\d+\s+pts:)/)){
+  if(!/^n:\s*\d+\s+pts:/.test(record)||! /\bs:\d+x\d+\b/.test(record))continue;
+  const m=/^n:\s*(\d+)\s+pts:\s*\S+\s+pts_time:(\S+).*?\bi:([PTB])/.exec(record);
   assert.ok(m,'Automatic CFR requires known progressive input PTS');
   assert.equal(Number(m[1]),this.frames++,'Input frame audit sequence');assert.equal(m[3],'P','Interlaced input outside automatic CFR scope');
   const t=Number(m[2]);assert.ok(Number.isFinite(t));
   if(this.pendingDecodeError){assert.ok(t<this.presentationStart,'Automatic CFR refuses a decode failure in the retained presentation range');this.preRollDecodeWarnings++;this.pendingDecodeError=false;}
   if(this.last!==undefined)assert.ok(t>this.last&&t-this.last<2,'Input PTS reversal/duplicate/gap: CFR must not hide missing pictures');
   this.last=t;
+  }
  }
 }

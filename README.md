@@ -51,3 +51,9 @@ v0.2.3の端末探索復旧については[詳しい説明](docs/CLIENT-DISCOVER
 名称変更前からの更新と内部名称の維持については [名称変更・互換性](docs/BRANDING.md) を参照してください。
 
 TVから見えない場合はDiagnose.cmdを実行してください。Windowsの現在のネットワーク・実行パス・受信規則を読み取り診断し、設定変更は行いません。詳細は [ファイアウォール診断](docs/FIREWALL.md) を参照してください。
+
+### v0.4.1候補：WMV3 / WMA Pro入力
+
+適格な受信機互換性profileとSD WMV3 Main / WMA Proの技術条件から、素材登録なしで入力を自動選択します。
+再生開始・2音声・SeekのPC検証と、未解決の自然EOF制限は別です。
+[対応条件と検証範囲](WMA_PRO_AUTOMATIC_INPUT.md)を確認してください。未公開候補であり、全WMA Pro・全受信機の保証ではありません。

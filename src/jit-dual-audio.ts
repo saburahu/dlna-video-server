@@ -70,7 +70,7 @@ export function selectDualAudio(permissions:readonly DualAudioPermission[]|undef
  // must never be overridden, and AVI keeps its original average-rate gate.
  const rate=wmv&&v.avg_frame_rate==='0/0'?v.r_frame_rate:v.avg_frame_rate??v.r_frame_rate;
  const [n,d]=String(rate).split('/').map(Number);
- if((!wmv&&!avi)||!(v.width>0&&v.width<=720&&v.height>0&&v.height<=576)||Math.abs(n/d-24000/1001)>.002||!Number.isFinite(n/d)||!Number.isFinite(duration)||duration<=0)return no('dual-audio-video-container-scope-unverified');
+ if((!wmv&&!avi)||!(v.width>0&&v.width<=720&&v.height>0&&v.height<=576)||!(wmv&&automaticPermission&&audio.every((a:any)=>a.codec_name==='wmapro')?[24000/1001,30000/1001]:[24000/1001]).some(r=>Math.abs(n/d-r)<.002)||!Number.isFinite(n/d)||!Number.isFinite(duration)||duration<=0)return no('dual-audio-video-container-scope-unverified');
  const codec=audio[0].codec_name;
  // WMA v2 ASF headers often omit a channel mask. The tested two-channel decoder
  // output is stereo; do not reinterpret an explicit different layout or admit
