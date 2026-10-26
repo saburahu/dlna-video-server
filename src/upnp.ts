@@ -1,3 +1,4 @@
+import {VirtualChildren,parseVirtual} from './virtual-folders.js';
 import dgram from "node:dgram";
 import { escapeXml, formatDuration, mediaSize, Profile, protocolInfo } from "./core.js";
 import { Program, settings, systemUpdateId } from "./store.js";
@@ -108,11 +109,12 @@ export function browseRequest(body: string) {
     count: Math.max(0, Number(get('RequestedCount')) || 0), metadata: get('BrowseFlag') === 'BrowseMetadata' };
 }
 export function browsePrograms(objectId: string, start: number, count: number, all: Program[], metadata = false) {
+  const virtual=parseVirtual(objectId);if(!metadata&&virtual?.base==='all'){const items=all.filter(p=>p.published);return {total:Math.max(0,Math.min(virtual.span,items.length-virtual.start)),selected:virtual.span===1000?items.slice(virtual.start+start,Math.min(virtual.start+1000,virtual.start+start+Math.min(count||200,200))):[]};}
   const candidates = metadata && objectId.startsWith('item:')
     ? all.filter(p => `item:${p.id}` === objectId)
     : !metadata && containers.some(([id]) => id === objectId) && objectId !== 'rec' && objectId !== 'folders'
       ? all.filter(p => p.published) : [];
-  return { total: candidates.length, selected: candidates.slice(start, count === 0 ? undefined : start + count) };
+  return { total: candidates.length, selected: candidates.slice(start, start+Math.min(count||200,200)) };
 }
 function item(p: Program, baseUrl: string, profile: Profile, resource?: MediaResource) {
   const display = metadataDisplay(p);
@@ -125,13 +127,20 @@ function item(p: Program, baseUrl: string, profile: Profile, resource?: MediaRes
   const durationText=preciseMs===undefined?formatDuration(duration):formatDuration(preciseMs/1000).replace(/\.000$/,'.'+String(preciseMs%1000).padStart(3,'0'));
   return `<item id="item:${p.id}" parentID="all" restricted="1"><dc:title>${escapeXml(display.title)}</dc:title><upnp:class>${profile.itemClass}</upnp:class><dc:date>${escapeXml(display.date)}</dc:date>${display.description ? `<dc:description>${escapeXml(display.description)}</dc:description>` : ""}${display.genre ? `<upnp:genre>${escapeXml(display.genre)}</upnp:genre>` : ""}${p.station ? `<upnp:channelName>${escapeXml(p.station)}</upnp:channelName>` : ""}<res protocolInfo="${escapeXml(protocolInfo(profile))}"${size!==undefined?` size="${size}"`:''}${duration ? ` duration="${durationText}"` : ""}>${escapeXml(url)}</res></item>`;
 }
-export function browseDIDL(objectId: string, start: number, count: number, all: Program[], baseUrl: string, profile: Profile, metadata = false, resources: ReadonlyMap<string, MediaResource> = new Map()) {
+export function browseDIDL(objectId: string, start: number, count: number, all: Program[], baseUrl: string, profile: Profile, metadata = false, resources: ReadonlyMap<string, MediaResource> = new Map(), virtualize=true): {didl:string;numberReturned:number;total:number;position?:number} {
+  if(virtualize){const projection=new VirtualChildren('all',0,all.filter(p=>p.published).length),parsed=parseVirtual(objectId);
+    const wrap=(body:string)=>`<?xml version="1.0"?><DIDL-Lite xmlns="urn:schemas-upnp-org:metadata-1-0/DIDL-Lite/" xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:upnp="urn:schemas-upnp-org:metadata-1-0/upnp/">${body}</DIDL-Lite>`;
+    if(objectId==='all'||parsed?.base==='all'){if(metadata){const n=projection.node(objectId);const body=objectId==='all'?container('all','rec','すべて',projection.page('all',0,1).total):n?container(n.id,n.parent,n.title,n.children):'';return {didl:wrap(body),numberReturned:body?1:0,total:body?1:0};}
+      const page=projection.page(objectId,start,count),published=all.filter(p=>p.published),body=page.children.map(c=>c.kind==='virtual'?container(c.id,c.parent,c.title,c.children):item(published[c.index],baseUrl,profile,resources.get(published[c.index].id)).replace('parentID="all"',`parentID="${c.parent}"`));return {didl:wrap(body.join('')),numberReturned:body.length,total:page.total};}
+    if(objectId==='rec'){const raw=browseDIDL(objectId,start,count,all,baseUrl,profile,metadata,resources,false);return {...raw,didl:raw.didl.replace(/<container id="all"[^>]*>/,tag=>tag.replace(/childCount="\d+"/,`childCount="${projection.page('all',0,1).total}"`))};}
+    if(metadata&&objectId.startsWith('item:')){const raw=browseDIDL(objectId,start,count,all,baseUrl,profile,true,resources,false),index=all.filter(p=>p.published).findIndex(p=>'item:'+p.id===objectId),parent=projection.parent('media',index);return {...raw,didl:parent?raw.didl.replace('parentID="all"',`parentID="${parent}"`):raw.didl};}
+  }
   let entries: string[] = [];
   const page = browsePrograms(objectId, start, count, all, metadata);
   if ((metadata && objectId.startsWith('item:')) || (!metadata && objectId !== 'rec' && objectId !== 'folders' && containers.some(([id]) => id === objectId))) {
     const selected = page.selected.map(p => item(p, baseUrl, profile, resources.get(p.id)));
     const didl = `<?xml version="1.0"?><DIDL-Lite xmlns="urn:schemas-upnp-org:metadata-1-0/DIDL-Lite/" xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:upnp="urn:schemas-upnp-org:metadata-1-0/upnp/">${selected.join('')}</DIDL-Lite>`;
-    return { didl, numberReturned: selected.length, total: page.total };
+    return { didl, numberReturned: selected.length, total: page.total,position:metadata&&objectId.startsWith('item:')?all.filter(p=>p.published).findIndex(p=>'item:'+p.id===objectId):undefined };
   }
   if (metadata && objectId === "0") entries = [container("0", "-1", settings.friendlyName, 1)];
   else if (metadata && objectId === "rec") entries = [container("rec", "0", "録画番組", containers.length-1)];

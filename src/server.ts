@@ -661,7 +661,7 @@ async function handler(req: IncomingMessage, res: ServerResponse) {
             resources.set('time-seek', { url: '', size: 0, profile: timeSeekProfile(profile) });
         }
       }
-      const libraryPage=browse&&!experimentalPage?await experimentalCatalog.libraryBrowse(browse,await experimentalCatalog.client(req),baseUrl(),(start,count,metadata)=>browseDIDL(browse.objectId,start,count,programs,baseUrl(),profile,metadata,resources)):undefined;
+      const libraryPage=browse&&!experimentalPage?await experimentalCatalog.libraryBrowse(browse,await experimentalCatalog.client(req),baseUrl(),(start,count,metadata,objectId)=>browseDIDL(objectId??browse.objectId,start,count,programs,baseUrl(),profile,metadata,resources,false)):undefined;
       const folderPage=browse?await experimentalCatalog.folderBrowse(browse,await experimentalCatalog.client(req),baseUrl(),async file=>{
         const p=programs.find(p=>p.published&&path.resolve(p.filePath).toLowerCase()===path.resolve(file).toLowerCase());if(!p)return;
         let r=new Map<string,MediaResource>();

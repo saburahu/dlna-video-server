@@ -1,3 +1,4 @@
+import {virtualId} from '../src/virtual-folders.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {promises as fs} from 'node:fs';
@@ -28,7 +29,7 @@ test('folder library: 5000+, independent roots, aliases, paging, incremental upd
  const request=(objectId:string,start=0,count=125,metadata=false)=>({objectId,start,count,metadata});
  const ts=async(file:string)=>`<item id="item:ts" parentID="all" restricted="1"><dc:title>${path.basename(file)}</dc:title><upnp:class>object.item.videoItem</upnp:class><res protocolInfo="http-get:*:video/mpeg:*">http://test/media/ts</res></item>`;
  const top=await c.folderBrowse(request('folders'),'','http://test',ts);assert.equal(top?.total,3);assert.ok(!top!.didl.includes(a));
- const meta=await c.folderBrowse(request(aid,0,1,true),'','http://test',ts);assert.equal(meta?.numberReturned,1);assert.ok(meta!.didl.includes(`childCount="5000"`));
+ const meta=await c.folderBrowse(request(aid,0,1,true),'','http://test',ts);assert.equal(meta?.numberReturned,1);assert.ok(meta!.didl.includes(`childCount="5"`));
  const page=await c.folderBrowse(request(bid),'','http://test',ts);assert.equal(page?.numberReturned,2);assert.ok(page!.didl.includes(`parentID="${bid}"`));assert.ok(page!.didl.includes('http://test/media/ts'));assert.ok(!page!.didl.includes('/library/jit/'));
  const xmlIds=[...page!.didl.matchAll(/<item id="([^"]+)"/g)].map(m=>m[1]);for(const id of xmlIds){const m=await c.folderBrowse(request(id,0,1,true),'','http://test',ts);assert.equal(m?.numberReturned,1);assert.ok(m!.didl.includes(`parentID="${bid}"`));}
  assert.equal(probes,0);const refA=db.folders.page(aid,0,1).rows[0],refD=db.folders.page(did,0,1).rows[0];assert.notEqual(refA.id,refD.id);assert.equal(refA.source_id,refD.source_id);assert.equal(refA.source_path,source);
@@ -38,9 +39,9 @@ test('folder library: 5000+, independent roots, aliases, paging, incremental upd
  await fs.mkdir(path.join(b,'新規'));const update=db.updateId;await db.scan([a,b,deep],data);assert.ok(db.updateId>update);await fs.rename(path.join(b,'新規'),path.join(b,'移動'));await db.scan([a,b,deep],data);assert.equal(db.folders.get(folderIdentity(b,'新規')),undefined);assert.ok(db.folders.get(folderIdentity(b,'移動')));
  await fs.unlink(source);await db.scan([a,b,deep],data);assert.equal(db.folders.count(aid),4999);assert.equal(db.folders.count(did),4999);
  const httpTimes:number[]=[]; // Full renderer, not only SQL query, on first/middle/final pages.
- for(const start of [0,2500,4875]){const at=performance.now();const p=await c.folderBrowse(request(aid,start),'','http://test',ts);httpTimes.push(performance.now()-at);assert.equal(p?.numberReturned,Math.min(125,4999-start));}
+ for(const start of [0,2500,4875]){const at=performance.now();const p=await c.folderBrowse(request(virtualId(aid,'media',Math.floor(start/1000)*1000,1000),start%1000),'','http://test',ts);httpTimes.push(performance.now()-at);assert.equal(p?.numberReturned,Math.min(125,1000-start%1000,4999-start));}
  const server=createServer(async(req,res)=>{const u=new URL(req.url!,'http://test');const page=await c.folderBrowse(request(u.searchParams.get('id')!,Number(u.searchParams.get('start')??0)), '', 'http://test',ts);res.setHeader('Content-Type','text/xml');res.end(experimentalBrowseSoap(page!,0));});await new Promise<void>(resolve=>server.listen(0,'127.0.0.1',resolve));
- const wireTimes:number[]=[];try{for(const [id,start] of [['folders',0],[aid,0],[aid,2500],[aid,4875]] as const){const at=performance.now();const response=await fetch(`http://127.0.0.1:${(server.address() as {port:number}).port}/?id=${encodeURIComponent(id)}&start=${start}`);const body=await response.text();wireTimes.push(performance.now()-at);assert.equal(response.status,200);assert.ok(body.includes('<TotalMatches>'));}}finally{server.closeAllConnections();await new Promise<void>(r=>server.close(()=>r()));}
+ const wireTimes:number[]=[];try{for(const [id,start] of [['folders',0],[aid,0],[aid,2500],[aid,4875]] as const){const at=performance.now();const response=await fetch(`http://127.0.0.1:${(server.address() as {port:number}).port}/?id=${encodeURIComponent(id===aid?virtualId(aid,'media',Math.floor(start/1000)*1000,1000):id)}&start=${id===aid?start%1000:start}`);const body=await response.text();wireTimes.push(performance.now()-at);assert.equal(response.status,200);assert.ok(body.includes('<TotalMatches>'));}}finally{server.closeAllConnections();await new Promise<void>(r=>server.close(()=>r()));}
  assert.equal(probes,0);
  const report={initial,incremental,sqlPageMs:times,didlBrowseMs:httpTimes,httpBrowseMs:wireTimes,dbBytes:(await fs.stat(path.join(data,INDEX_FILE))).size,rss:process.memoryUsage().rss,probes};console.log('FOLDER_5000 '+JSON.stringify({...report,sqlPageMs:{min:Math.min(...times),max:Math.max(...times)}}));
  if(process.env.PT3_FOLDER_BENCHMARK_REPORT)await fs.writeFile(process.env.PT3_FOLDER_BENCHMARK_REPORT,JSON.stringify(report,null,2));

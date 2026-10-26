@@ -1,3 +1,4 @@
+import {virtualId} from '../src/virtual-folders.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { promises as fs } from 'node:fs';
@@ -18,15 +19,15 @@ test('5000件のBrowseは要求ページだけXML化し件数/末尾/メタデ�
     id: i.toString(16), filePath: `unused-${i}.ts`, size: 18800, modified: '2026-10-05', published: i !== 0,
     analysis: 'ok', get title() { titlesRead++; return `番組${i}`; }
   }));
-  const page = browseDIDL('all', 4000, 25, programs, 'http://localhost', profiles.standard);
-  assert.equal(page.total, 4999); assert.equal(page.numberReturned, 25); assert.equal(titlesRead, 50);
+  const page = browseDIDL(virtualId('all','media',4000,1000), 0, 25, programs, 'http://localhost', profiles.standard);
+  assert.equal(page.total, 999); assert.equal(page.numberReturned, 25); assert.equal(titlesRead, 50);
   assert.ok(page.didl.includes('番組4001')); assert.ok(!page.didl.includes('番組4000<'));
-  const request = browseRequest('<ObjectID>all</ObjectID><StartingIndex>4000</StartingIndex><RequestedCount>25</RequestedCount>');
+  const request = browseRequest('<ObjectID>'+virtualId('all','media',4000,1000)+'</ObjectID><StartingIndex>0</StartingIndex><RequestedCount>25</RequestedCount>');
   assert.equal(browsePrograms(request.objectId, request.start, request.count, programs).selected.length, 25);
-  assert.equal(browseDIDL('all', 4990, 25, programs, '', profiles.standard).numberReturned, 9);
-  assert.equal(browseDIDL('all', 5000, 25, programs, '', profiles.standard).numberReturned, 0);
+  assert.equal(browseDIDL(virtualId('all','media',4000,1000), 990, 25, programs, '', profiles.standard).numberReturned, 9);
+  assert.equal(browseDIDL(virtualId('all','media',4000,1000), 1000, 25, programs, '', profiles.standard).numberReturned, 0);
   assert.equal(browseDIDL('item:abc', 0, 1, programs, '', profiles.standard, true).numberReturned, 1);
-  assert.equal(browseDIDL('all', 4998, 0, programs, '', profiles.standard).numberReturned, 1);
+  assert.equal(browseDIDL(virtualId('all','media',4000,1000), 998, 0, programs, '', profiles.standard).numberReturned, 1);
 });
 
 test('PCR永続キャッシュ: 並行要求統合/プロセス再起動/更新/破損/録画内保存拒否', async t => {
@@ -85,17 +86,17 @@ test('実HTTP: 5000録画のBrowseはページ内もPCR解析しない; GETで�
   assert.equal((await status()).programCount, 5000);
   const root = await soap('Browse', '<ObjectID>0</ObjectID><RequestedCount>1</RequestedCount>'); assert.ok(root.includes('録画番組'));
   await soap('GetProtocolInfo', ''); assert.equal((await status()).pcrCache.builds, 0);
-  const page = await soap('Browse', '<ObjectID>all</ObjectID><StartingIndex>4000</StartingIndex><RequestedCount>25</RequestedCount>');
-  assert.ok(page.includes('<NumberReturned>25</NumberReturned>')); assert.ok(page.includes('<TotalMatches>5000</TotalMatches>'));
+  const page = await soap('Browse', '<ObjectID>'+virtualId('all','media',4000,1000)+'</ObjectID><StartingIndex>0</StartingIndex><RequestedCount>25</RequestedCount>');
+  assert.ok(page.includes('<NumberReturned>25</NumberReturned>')); assert.ok(page.includes('<TotalMatches>1000</TotalMatches>'));
   assert.ok(page.includes('encapsulation=arib-content-packet')); assert.ok(page.length < 30000);
   assert.equal((await status()).pcrCache.builds, 0);
-  assert.equal(await soap('Browse', '<ObjectID>all</ObjectID><StartingIndex>4000</StartingIndex><RequestedCount>25</RequestedCount>'), page);
+  assert.equal(await soap('Browse', '<ObjectID>'+virtualId('all','media',4000,1000)+'</ObjectID><StartingIndex>0</StartingIndex><RequestedCount>25</RequestedCount>'), page);
   assert.equal((await status()).pcrCache.builds, 0);
   const decoded=page.replaceAll('&lt;','<').replaceAll('&gt;','>').replaceAll('&amp;','&').replaceAll('&quot;','"');
   const resource=/<res\b[^>]*>([^<]+)<\/res>/.exec(decoded)![1].replaceAll('&amp;','&');
   assert.ok(!/<res\b[^>]*>/.exec(decoded)![0].includes('size='),'Unknown wrapped size must not be guessed');
   const response=await fetch(resource,{headers:{'TimeSeekRange.dlna.org':'npt=0-0.1'}});assert.equal(response.status,200);assert.ok((await response.arrayBuffer()).byteLength>0);
   assert.equal((await status()).pcrCache.builds,1);
-  await soap('Browse','<ObjectID>all</ObjectID><StartingIndex>4000</StartingIndex><RequestedCount>25</RequestedCount>');
+  await soap('Browse','<ObjectID>'+virtualId('all','media',4000,1000)+'</ObjectID><StartingIndex>0</StartingIndex><RequestedCount>25</RequestedCount>');
   assert.equal((await status()).pcrCache.builds,1);
 });

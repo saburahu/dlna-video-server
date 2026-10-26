@@ -1,3 +1,4 @@
+import {VirtualChildren,parseVirtual} from './virtual-folders.js';
 import path from 'node:path';
 import type {DatabaseSync} from 'node:sqlite';
 import {snapshotHash} from './playback-shadow.js';
@@ -52,4 +53,18 @@ export class FolderIndex {
    return {total,rows:rows.map(r=>r.kind==='folder'?{...r,children:this.count(r.id)}:r)};
   }finally{this.db.exec('COMMIT');}
  }
+ projection(parent:string){const f=Number(this.db.prepare('SELECT count(*) n FROM folders WHERE parent=?').get(parent)!.n),m=Number(this.db.prepare('SELECT count(*) n FROM folder_media WHERE parent=?').get(parent)!.n);return new VirtualChildren(parent,f,m);}
+ position(row:FolderRow){const table=row.kind==='folder'?'folders':'folder_media';return Number(this.db.prepare('SELECT count(*) n FROM '+table+' WHERE parent=? AND (sort_key<? OR (sort_key=? AND id<?))').get(row.parent,row.sort_key,row.sort_key,row.id)!.n);}
+ axisPage(parent:string,axis:'folders'|'media',start:number,count:number){const table=axis==='folders'?'folders':'folder_media';return this.db.prepare('SELECT *, ? kind FROM '+table+' WHERE parent=? ORDER BY sort_key,id LIMIT ? OFFSET ?').all(axis==='folders'?'folder':'media',parent,count,start) as unknown as FolderRow[];}
+ browseGet(id:string):FolderRow|undefined{
+  const parsed=parseVirtual(id);if(parsed){if(parsed.base!==FOLDER_ROOT&&this.get(parsed.base)?.kind!=='folder')return;const n=this.projection(parsed.base).node(id);return n?{id:n.id,parent:n.parent,root_id:'',name:n.title,sort_key:'',kind:'folder',children:n.children}:undefined;}
+  const r=id===FOLDER_ROOT?{id,parent:'rec',root_id:'',name:'フォルダ別',sort_key:'',kind:'folder' as const}:this.get(id);if(!r)return;
+  return {...r,parent:id===FOLDER_ROOT?r.parent:this.projection(r.parent).parent(r.kind==='folder'?'folders':'media',this.position(r))??r.parent,...(r.kind==='folder'?{children:this.projection(id).page(id,0,1).total}:{})};
+ }
+ browsePage(id:string,start:number,count:number){
+  const base=parseVirtual(id)?.base??id;if(base!==FOLDER_ROOT&&this.get(base)?.kind!=='folder')return {total:0,rows:[] as FolderRow[]};const projection=this.projection(base),page=projection.page(id,start,count),lookups=new Map<string,FolderRow>();
+  for(const axis of ['folders','media'] as const){const indices=page.children.filter(c=>c.kind==='entry'&&c.axis===axis).map(c=>c.kind==='entry'?c.index:0);if(!indices.length)continue;const lo=Math.min(...indices),hi=Math.max(...indices);this.axisPage(base,axis,lo,hi-lo+1).forEach((r,i)=>lookups.set(axis+':'+(lo+i),r));}
+  return {total:page.total,rows:page.children.map(c=>{if(c.kind==='virtual')return {id:c.id,parent:c.parent,root_id:'',name:c.title,sort_key:'',kind:'folder',children:c.children} as FolderRow;const r=lookups.get(c.axis+':'+c.index)!;return {...r,parent:c.parent,...(r.kind==='folder'?{children:this.projection(r.id).page(r.id,0,1).total}:{})};})};
+ }
+
 }

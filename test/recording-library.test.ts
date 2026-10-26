@@ -1,3 +1,4 @@
+import {virtualId} from '../src/virtual-folders.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {promises as fs} from 'node:fs';
@@ -52,15 +53,15 @@ test('5000 normal library items: bounded SQL paging, restart-stable IDs, zero Br
  let probes=0;const catalog=createExperimentalCatalog(dir,()=>{},()=>[],{inspect:async()=>{probes++;throw Error('Browse must not probe');}});
  t.after(async()=>{await catalog.closeIndex();db.close();await fs.rm(root,{recursive:true,force:true});});
  const ts={id:'existing-ts',published:true,title:'通常TS',filename:'通常.ts',size:188,mtimeMs:0,path:'unchanged.ts'} as any;
- const legacy=(start:number,count:number,metadata:boolean)=>browseDIDL('all',start,count,[ts],'http://test',profiles.standard,metadata);
+ const legacy=(start:number,count:number,metadata:boolean,objectId='all')=>browseDIDL(objectId,start,count,[ts],'http://test',profiles.standard,metadata,new Map(),false);
  const old=legacy(0,1,false),prefix=/<item\b[\s\S]*?<\/item>/.exec(old.didl)![0],times:number[]=[],ids:string[]=[];
- for(let start=0;start<5001;start+=125){const at=performance.now();const page=await catalog.libraryBrowse({objectId:'all',start,count:125,metadata:false},'', 'http://test',legacy);times.push(performance.now()-at);assert.equal(page?.total,5001);assert.equal(page?.numberReturned,Math.min(125,5001-start));if(!start)assert.ok(page!.didl.includes(prefix));ids.push(...[...page!.didl.matchAll(/<item id="([^"]+)"/g)].map(m=>m[1]));assert.ok(!page!.didl.includes('/library/jit/'),'unanalysed entries have no false resource');}
+ for(let start=0;start<5001;start+=125){const at=performance.now();const page=await catalog.libraryBrowse({objectId:virtualId('all','media',Math.floor(start/1000)*1000,1000),start:start%1000,count:125,metadata:false},'', 'http://test',legacy);times.push(performance.now()-at);assert.equal(page?.total,Math.min(1000,5001-Math.floor(start/1000)*1000));assert.equal(page?.numberReturned,Math.min(125,1000-start%1000,5001-start));if(!start)assert.ok(page!.didl.includes(prefix.replace('parentID="all"','parentID="'+virtualId('all','media',0,1000)+'"')));ids.push(...[...page!.didl.matchAll(/<item id="([^"]+)"/g)].map(m=>m[1]));assert.ok(!page!.didl.includes('/library/jit/'),'unanalysed entries have no false resource');}
  assert.equal(ids.length,5001);assert.equal(new Set(ids).size,5001);assert.equal(ids[0],'item:existing-ts');assert.equal(probes,0);
- const all=await catalog.libraryBrowse({objectId:'all',start:0,count:0,metadata:false},'','http://test',legacy);assert.equal(all?.numberReturned,200);
+ const all=await catalog.libraryBrowse({objectId:'all',start:0,count:0,metadata:false},'','http://test',legacy);assert.equal(all?.numberReturned,6);
  const before=db.page(2500,125).entries.map(r=>r.objectId);await catalog.closeIndex();db.close();db=await openMediaIndex(dir);assert.deepEqual(db.page(2500,125).entries.map(r=>r.objectId),before);
  const http=createServer(async(req,res)=>{const chunks:Buffer[]=[];for await(const b of req)chunks.push(Buffer.from(b));const r=browseRequest(Buffer.concat(chunks).toString());const page=await catalog.libraryBrowse(r,'','http://test',legacy);res.setHeader('Content-Type','text/xml');res.end(experimentalBrowseSoap(page!,0));});
  await new Promise<void>(r=>http.listen(0,'127.0.0.1',r));t.after(()=>{http.closeAllConnections();http.close();});const httpMs:number[]=[];
- for(const start of [0,2500,4876]){const at=performance.now();const response=await fetch(`http://127.0.0.1:${(http.address() as {port:number}).port}`,{method:'POST',body:`<ObjectID>all</ObjectID><BrowseFlag>BrowseDirectChildren</BrowseFlag><StartingIndex>${start}</StartingIndex><RequestedCount>125</RequestedCount>`});const xml=await response.text();httpMs.push(performance.now()-at);assert.ok(xml.includes('<NumberReturned>125</NumberReturned>'));assert.ok(xml.includes('<TotalMatches>5001</TotalMatches>'));}assert.equal(probes,0);
+ for(const start of [0,2500,4876]){const at=performance.now();const response=await fetch(`http://127.0.0.1:${(http.address() as {port:number}).port}`,{method:'POST',body:`<ObjectID>${virtualId('all','media',Math.floor(start/1000)*1000,1000)}</ObjectID><BrowseFlag>BrowseDirectChildren</BrowseFlag><StartingIndex>${start%1000}</StartingIndex><RequestedCount>125</RequestedCount>`});const xml=await response.text();httpMs.push(performance.now()-at);assert.ok(xml.includes('<NumberReturned>'+Math.min(125,1000-start%1000,5001-start)+'</NumberReturned>'));assert.ok(xml.includes('<TotalMatches>1000</TotalMatches>'));}assert.equal(probes,0);
  const dbBytes=(await fs.stat(path.join(dir,'media-index.sqlite'))).size;
  console.log('LIBRARY_5000 '+JSON.stringify({indexMs,dbBytes,browseMinMs:Math.min(...times),browseMaxMs:Math.max(...times),httpMs,pages:times.length,probes,rss:process.memoryUsage().rss}));
 });

@@ -1,3 +1,4 @@
+import {parseVirtual,VirtualChildren} from './virtual-folders.js';
 import {createDirectMedia} from './direct-media.js';
 import {createImageDelivery,photoItem,PHOTO_ROOT} from './image-delivery.js';
 import {librarySwitch,libraryPagePlan,combineLibraryPage,LIBRARY_VIEWS} from './recording-library.js';
@@ -150,12 +151,13 @@ export function createExperimentalCatalog(directory: string, trace: (message: st
   return {
     libraryEnabled:integrationEnabled,
     async folderBrowse(request:BrowseInput,remote:string,baseUrl:string,renderTs:(file:string)=>Promise<string|undefined>){
-      if(request.objectId!==FOLDER_ROOT&&!/^library\/folder(?:-item)?\/[a-f0-9]{32}$/.test(request.objectId))return;
+      const folderBase=parseVirtual(request.objectId)?.base??request.objectId;
+      if(folderBase!==FOLDER_ROOT&&!/^library\/folder(?:-item)?\/[a-f0-9]{32}$/.test(folderBase))return;
       try{
         const db=await index();if(!db?.enabled)return {didl:wrap([]),numberReturned:0,total:0};
         const root:FolderRow={id:FOLDER_ROOT,parent:'rec',root_id:'',name:'フォルダ別',sort_key:'',kind:'folder',children:db.folders.count(FOLDER_ROOT)};
-        const object=request.objectId===FOLDER_ROOT?root:db.folders.get(request.objectId);
-        const page=request.metadata?{rows:object?[object]:[],total:object?1:0}:object?.kind==='folder'?db.folders.page(object.id,request.start,request.count):{rows:[],total:0};
+        const object=db.folders.browseGet(request.objectId);
+        const page=request.metadata?{rows:object?[object]:[],total:object?1:0}:object?.kind==='folder'?db.folders.browsePage(object.id,request.start,request.count):{rows:[],total:0};
         const items=await Promise.all(page.rows.map(async r=>{
           if(r.kind==='folder')return folderContainer(r);
           if(r.source_id!.startsWith('item:'))return folderAlias(await renderTs(r.source_path!)??`<item id="unavailable" parentID="all" restricted="1"><dc:title>${escapeXml(r.name)}</dc:title><upnp:class>object.item.videoItem</upnp:class></item>`,r);
@@ -164,36 +166,37 @@ export function createExperimentalCatalog(directory: string, trace: (message: st
           const checked=await currentEntries({version:CATALOG_VERSION,enabled:true,generatedAt:'index',entries:[entry]},{objectId:entry.objectId,start:0,count:1,metadata:true},remote);
           return folderAlias(await integrationEnabled()?await renderLibrary(checked.entries[0],baseUrl,remote):libraryItem({...checked.entries[0],jit:undefined},baseUrl),r);
         }));
-        const present=items.filter(Boolean);return {didl:wrap(present),numberReturned:present.length,total:page.total,updateId:(db.updateId+await integrationEnabled.revision()+await jit.revision())>>>0};
+        const present=items.filter(Boolean);return {didl:wrap(present),numberReturned:present.length,total:page.total,updateId:(db.updateId+await integrationEnabled.revision()+await jit.revision()+1)>>>0};
       }catch(error){trace('FOLDER_BROWSE_ERROR',{error:String(error)});return {didl:wrap([]),numberReturned:0,total:0};}
     },
-    async libraryBrowse(request:BrowseInput,remote:string,baseUrl:string,legacy:(start:number,count:number,metadata:boolean)=>BrowsePage){
+    async libraryBrowse(request:BrowseInput,remote:string,baseUrl:string,legacy:(start:number,count:number,metadata:boolean,objectId?:string)=>BrowsePage&{position?:number}){
       if(!await integrationEnabled())return;
-      if(!LIBRARY_VIEWS.has(request.objectId)&&request.objectId!=='rec'&&!request.objectId.startsWith('library/item/'))return;
+      const base=parseVirtual(request.objectId)?.base??request.objectId;
+      if(!LIBRARY_VIEWS.has(base)&&base!=='rec'&&!base.startsWith('library/item/')&&!base.startsWith('item:'))return;
       try{
-        const db=await index();if(!db?.enabled)return;const revision=(await integrationEnabled.revision()+await jit.revision())>>>0;
-        if(request.objectId.startsWith('library/item/')){
-          const e=request.metadata?await lookup(request.objectId.replace('library/item/','experimental/catalog-item/')):undefined;
-          const checked=e?await currentEntries({version:CATALOG_VERSION,enabled:true,generatedAt:'index',entries:[e]}, {objectId:e.objectId,start:0,count:1,metadata:true},remote):undefined;
-          const entry=checked?.entries[0];
-          return {didl:wrap(entry?[await renderLibrary(entry,baseUrl,remote)]:[]),numberReturned:entry?1:0,total:entry?1:0,updateId:(db.updateId+revision)>>>0};
+        const db=await index();if(!db?.enabled)return;const revision=(await integrationEnabled.revision()+await jit.revision()+1)>>>0,tsTotal=legacy(0,1,false,'all').total,projection=new VirtualChildren('all',0,tsTotal+db.count()),updateId=(db.updateId+revision)>>>0;
+        const parentXml=(xml:string,parent:string)=>xml.replace(/parentID="[^"]*"/,'parentID="'+parent+'"');
+        if(base.startsWith('item:')){if(!request.metadata)return;const raw=legacy(0,1,true,base),parent=projection.parent('media',raw.position??-1);return {...raw,didl:parent?parentXml(raw.didl,parent):raw.didl,updateId};}
+        if(base.startsWith('library/item/')){
+          const e=request.metadata?await lookup(base.replace('library/item/','experimental/catalog-item/')):undefined,checked=e?await currentEntries({version:CATALOG_VERSION,enabled:true,generatedAt:'index',entries:[e]},{objectId:e.objectId,start:0,count:1,metadata:true},remote):undefined,entry=checked?.entries[0],position=db.position(base.replace('library/item/','experimental/item/'));
+          const xml=entry?await renderLibrary(entry,baseUrl,remote):'';return {didl:wrap(xml?[parentXml(xml,projection.parent('media',tsTotal+(position??-tsTotal-1))??'all')]:[]),numberReturned:entry?1:0,total:entry?1:0,updateId};
         }
-        if(request.metadata||request.objectId==='rec'){
-          const old=legacy(request.start,request.count,request.metadata);
-          return {...old,didl:old.didl.replace(/<container\b[^>]*>/g,tag=>tag.replace(/childCount="(\d+)"/,(_m,n)=>`childCount="${tag.includes('id="folders"')?db.folders.count(FOLDER_ROOT):Number(n)+(request.objectId==='rec'&&request.metadata?0:db.count())}"`)),updateId:(db.updateId+revision)>>>0};
+        if(base==='rec'){
+          const old=legacy(request.start,request.count,request.metadata,'rec');return {...old,didl:old.didl.replace(/<container\b[^>]*>/g,tag=>tag.includes('id="all"')?tag.replace(/childCount="\d+"/,'childCount="'+projection.page('all',0,1).total+'"'):tag.includes('id="folders"')?tag.replace(/childCount="\d+"/,'childCount="'+db.folders.projection(FOLDER_ROOT).page(FOLDER_ROOT,0,1).total+'"'):tag),updateId};
         }
-        const tsTotal=legacy(0,1,false).total,plan=libraryPagePlan(request.start,request.count,tsTotal);
-        const ts=plan.tsCount?legacy(plan.tsStart,plan.tsCount,false):{...legacy(0,1,false),didl:wrap([]),numberReturned:0};
-        const page=plan.catalogCount?db.page(plan.catalogStart,plan.catalogCount):{entries:[],total:db.count(),updateId:db.updateId};
-        const entries=page.entries.map(r=>({...indexedExperimentalEntry(r),objectId:r.objectId.replace('/item/','/catalog-item/')}));
-        const checked=await currentEntries({version:CATALOG_VERSION,enabled:true,generatedAt:'index',entries},{objectId:'experimental',start:0,count:0,metadata:false},remote);
-        const items=await Promise.all(checked.entries.map(async e=>renderLibrary(e,baseUrl,remote)));
-        return combineLibraryPage(ts,items,tsTotal+page.total,(page.updateId+revision)>>>0);
-      }catch(error){trace('LIBRARY_BROWSE_ERROR',{error:String(error)});return;}
+        if(request.metadata){const n=projection.node(request.objectId),r=request.objectId==='all'?{id:'all',parent:'rec',name:'すべて',children:projection.page('all',0,1).total}:n?{id:n.id,parent:n.parent,name:n.title,children:n.children}:undefined;return {didl:wrap(r?[folderContainer({...r,kind:'folder',root_id:'',sort_key:''})]:[]),numberReturned:r?1:0,total:r?1:0,updateId};}
+        const logical=projection.page(request.objectId,request.start,request.count);
+        if(logical.children.every(c=>c.kind==='virtual'))return {didl:wrap(logical.children.map(c=>folderContainer({id:c.id,parent:c.parent,name:c.title,children:c.children,kind:'folder',root_id:'',sort_key:''}))),numberReturned:logical.children.length,total:logical.total,updateId};
+        const first=logical.children.find(c=>c.kind==='entry'),start=first?.kind==='entry'?first.index:0,plan=libraryPagePlan(start,logical.children.length,tsTotal);
+        if(!logical.children.length)return {didl:wrap([]),numberReturned:0,total:logical.total,updateId};
+        const ts=plan.tsCount?legacy(plan.tsStart,plan.tsCount,false,'all'):{didl:wrap([]),numberReturned:0,total:tsTotal},page=plan.catalogCount?db.page(plan.catalogStart,plan.catalogCount):{entries:[],total:db.count(),updateId:db.updateId};
+        const entries=page.entries.map(r=>({...indexedExperimentalEntry(r),objectId:r.objectId.replace('/item/','/catalog-item/')})),checked=await currentEntries({version:CATALOG_VERSION,enabled:true,generatedAt:'index',entries},{objectId:'experimental',start:0,count:0,metadata:false},remote),items=await Promise.all(checked.entries.map(async e=>renderLibrary(e,baseUrl,remote)));
+        const result=combineLibraryPage(ts,items,logical.total,updateId);return {...result,didl:result.didl.replace(/parentID="all"/g,'parentID="'+request.objectId+'"')};
+      }catch(error){trace('LIBRARY_BROWSE_ERROR',{error:String(error)});return {didl:wrap([]),numberReturned:0,total:0};}
     },
     async libraryMedia(req:IncomingMessage,res:ServerResponse,token:string){jit.receive(req);if(!await integrationEnabled()){res.writeHead(404);res.end();return;}return this.jitMedia(req,res,token,true);},
     startBackground:()=>background.start(),stopBackground:async()=>{await background.stop();await jit.closeAutomatic();},backgroundStatus:()=>background.status(),rescan:()=>background.scanNow(),configureScanInterval:(seconds:number)=>background.configureInterval(seconds),
-    async updateId(){try{const db=await index();return ((db?.enabled?db.updateId:0)+await integrationEnabled.revision()+await jit.revision())>>>0;}catch{return 0;}},
+    async updateId(){try{const db=await index();return ((db?.enabled?db.updateId:0)+await integrationEnabled.revision()+await jit.revision()+1)>>>0;}catch{return 0;}},
     async closeIndex(){if(database){const db=await database;db.close();database=undefined;}},
     observe(record: ShadowRecord) {
       const entry = cached?.entries.find(e => matchingFingerprint(e.fingerprint, record.request.fingerprint));

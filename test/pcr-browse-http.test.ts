@@ -1,3 +1,4 @@
+import {virtualId} from '../src/virtual-folders.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {promises as fs} from 'node:fs';
@@ -20,19 +21,19 @@ test('1500 TS folder HTTP paging and repeated automatic scans create zero indexe
  const status=()=>fetch(base+'/api/status').then(r=>r.json());
  const worker=()=>fetch(base+'/api/experimental/catalog/status').then(r=>r.json());
  for(let i=0;i<100;i++){if((await worker()).scans>=1)break;await new Promise(r=>setTimeout(r,50));}
- assert.ok((await worker()).scans>=1,JSON.stringify(await worker()));
+ assert.ok((await worker()).scans>=1);
  const browse=async(id:string,start=0,count=100)=>{const at=performance.now();const r=await fetch(base+'/upnp/control/content-directory',{method:'POST',headers:{soapaction:'"urn:schemas-upnp-org:service:ContentDirectory:1#Browse"'},body:`<ObjectID>${id}</ObjectID><BrowseFlag>BrowseDirectChildren</BrowseFlag><StartingIndex>${start}</StartingIndex><RequestedCount>${count}</RequestedCount>`});assert.equal(r.status,200);const soap=await r.text(),didl=soap.replaceAll('&lt;','<').replaceAll('&gt;','>').replaceAll('&amp;','&').replaceAll('&quot;','"');return {soap,didl,ms:performance.now()-at};};
  let folder='folders';for(let i=0;i<3;i++){const p=await browse(folder);folder=/<container id="([^"]+)"/.exec(p.didl)![1];}
  const ids:string[]=[],times:number[]=[];let first:string|undefined;
- for(let start=0;start<1500;start+=100){const p=await browse(folder,start);assert.match(p.soap,/<TotalMatches>1500<\/TotalMatches>/);assert.match(p.soap,/<NumberReturned>100<\/NumberReturned>/);ids.push(...[...p.didl.matchAll(/<item id="([^"]+)"/g)].map(m=>m[1]));times.push(p.ms);first??=p.didl;}
+ for(let start=0;start<1500;start+=100){const p=await browse(virtualId(folder,'media',Math.floor(start/1000)*1000,1000),start%1000);assert.ok(p.soap.includes('<TotalMatches>'+Math.min(1000,1500-Math.floor(start/1000)*1000)+'</TotalMatches>'));assert.match(p.soap,/<NumberReturned>100<\/NumberReturned>/);ids.push(...[...p.didl.matchAll(/<item id="([^"]+)"/g)].map(m=>m[1]));times.push(p.ms);first??=p.didl;}
  assert.equal(new Set(ids).size,1500);assert.equal((await status()).pcrCache.builds,0);assert.equal(await fs.stat(path.join(data,'pcr-cache')).catch(()=>undefined),undefined);
- const cap=await browse(folder,0,0);assert.match(cap.soap,/<NumberReturned>200<\/NumberReturned>/);
+ const cap=await browse(virtualId(folder,'media',0,1000),0,0);assert.match(cap.soap,/<NumberReturned>200<\/NumberReturned>/);
  const scans=(await worker()).scans;for(let i=0;i<60&&(await worker()).scans<scans+2;i++)await new Promise(r=>setTimeout(r,100));assert.ok((await worker()).scans>=scans+2);assert.equal((await status()).pcrCache.builds,0);
  const tag=/<res\b[^>]*>/.exec(first!)![0];assert.ok(!tag.includes('size='));const url=/<res\b[^>]*>([^<]+)<\/res>/.exec(first!)![1].replaceAll('&amp;','&');
  for(let i=0;i<2;i++){const r=await fetch(url,{headers:{'TimeSeekRange.dlna.org':'npt=0-0.1'}});assert.equal(r.status,200);assert.ok((await r.arrayBuffer()).byteLength>0);assert.equal((await status()).pcrCache.builds,1);}
- const warm=await browse(folder);assert.ok(/<res\b[^>]*>/.exec(warm.didl)![0].includes('size='));
+ const warm=await browse(virtualId(folder,'media',0,1000));assert.ok(/<res\b[^>]*>/.exec(warm.didl)![0].includes('size='));
  await fs.writeFile(path.join(media,'0000.ts'),syntheticTs(2000,5000));
- const stale=await browse(folder);assert.ok(!/<res\b[^>]*>/.exec(stale.didl)![0].includes('size='));assert.equal((await status()).pcrCache.builds,1);
+ const stale=await browse(virtualId(folder,'media',0,1000));assert.ok(!/<res\b[^>]*>/.exec(stale.didl)![0].includes('size='));assert.equal((await status()).pcrCache.builds,1);
  const updated=await fetch(url,{headers:{'TimeSeekRange.dlna.org':'npt=0-0.1'}});assert.equal(updated.status,200);await updated.arrayBuffer();assert.equal((await status()).pcrCache.builds,2);assert.equal((await fs.readdir(path.join(data,'pcr-cache'))).length,1);
  console.log('PCR_FOLDER_1500',JSON.stringify({firstMs:times[0],middleMs:times[7],lastMs:times.at(-1),maxMs:Math.max(...times),pages:times.length,browseBuilds:0,automaticScans:(await worker()).scans,rss:process.memoryUsage().rss}));
 });

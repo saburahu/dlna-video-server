@@ -1,0 +1,23 @@
+/** Browse-only projection. No media, policy or persistent index mutation. */
+export const VIRTUAL_LIMIT=1000;
+export const BROWSE_LIMIT=200;
+export type Axis='folders'|'media';
+export interface VirtualNode {kind:'virtual';id:string;parent:string;title:string;children:number;axis:Axis;start:number;span:number}
+export interface VirtualEntry {kind:'entry';axis:Axis;index:number;parent:string}
+export type ProjectedChild=VirtualNode|VirtualEntry;
+const prefix='virtual/v1/';
+export function virtualId(base:string,axis:Axis,start:number,span:number){return `${prefix}${Buffer.from(base).toString('base64url')}/${axis}/${start}/${span}`;}
+export function parseVirtual(id:string){const m=/^virtual\/v1\/([A-Za-z0-9_-]{1,2048})\/(folders|media)\/(0|[1-9]\d*)\/(0|[1-9]\d*)$/.exec(id);if(!m)return;const base=Buffer.from(m[1],'base64url').toString('utf8'),start=Number(m[3]),span=Number(m[4]);if(base.startsWith(prefix)||Buffer.from(base).toString('base64url')!==m[1]||!Number.isSafeInteger(start)||!Number.isSafeInteger(span))return;return {base,axis:m[2] as Axis,start,span};}
+export class VirtualChildren {
+ constructor(readonly base:string,readonly folders:number,readonly media:number){for(const n of [folders,media,folders+media])if(!Number.isSafeInteger(n)||n<0)throw Error('Invalid virtual child count');}
+ private size(axis:Axis){return axis==='folders'?this.folders:this.media;}
+ private span(n:number){let span=VIRTUAL_LIMIT;while(Math.ceil(n/span)>VIRTUAL_LIMIT)span*=VIRTUAL_LIMIT;return span;}
+ private ranges(axis:Axis,parent:string,start=0,length=this.size(axis),span=this.span(length)):VirtualNode[]{return Array.from({length:Math.ceil(length/span)},(_,i)=>{const a=start+i*span,n=Math.min(span,length-i*span);return {kind:'virtual',id:virtualId(this.base,axis,a,span),parent,title:`${a+1}–${a+span}`,children:span===VIRTUAL_LIMIT?n:Math.ceil(n/(span/VIRTUAL_LIMIT)),axis,start:a,span};});}
+ private raw(axis:Axis,parent:string,start:number,length:number):VirtualEntry[]{return Array.from({length},(_,i)=>({kind:'entry',axis,index:start+i,parent}));}
+ private rootNode(axis:Axis):VirtualNode{return {kind:'virtual',id:virtualId(this.base,axis,0,0),parent:this.base,title:axis==='media'?'動画':'フォルダー',children:this.size(axis)<=VIRTUAL_LIMIT?this.size(axis):Math.ceil(this.size(axis)/this.span(this.size(axis))),axis,start:0,span:0};}
+ private root():ProjectedChild[]{const f=this.folders,m=this.media;if(f+m<=VIRTUAL_LIMIT)return [...this.raw('folders',this.base,0,f),...this.raw('media',this.base,0,m)];if(!f)return this.ranges('media',this.base);if(!m)return this.ranges('folders',this.base);const video=this.ranges('media',this.base);if(f+video.length<=VIRTUAL_LIMIT)return [...this.raw('folders',this.base,0,f),...video];if(f<VIRTUAL_LIMIT)return [...this.raw('folders',this.base,0,f),this.rootNode('media')];const folders=this.ranges('folders',this.base);return folders.length+1<=VIRTUAL_LIMIT?[...folders,this.rootNode('media')]:[this.rootNode('folders'),this.rootNode('media')];}
+ private below(node:VirtualNode):ProjectedChild[]{const n=Math.min(node.span||this.size(node.axis),this.size(node.axis)-node.start);if(node.span===VIRTUAL_LIMIT||node.span===0&&n<=VIRTUAL_LIMIT)return this.raw(node.axis,node.id,node.start,n);return this.ranges(node.axis,node.id,node.start,n,node.span?node.span/VIRTUAL_LIMIT:this.span(n));}
+ node(id:string):VirtualNode|undefined{const p=parseVirtual(id);if(!p||p.base!==this.base)return;let list=this.root();for(let depth=0;depth<8;depth++){const exact=list.find(x=>x.kind==='virtual'&&x.id===id);if(exact)return exact as VirtualNode;const next=list.find(x=>x.kind==='virtual'&&x.axis===p.axis&&(x.span===0||p.start>=x.start&&p.start<x.start+x.span)) as VirtualNode|undefined;if(!next||next.span===VIRTUAL_LIMIT)return;list=this.below(next);}return;}
+ page(id:string,start:number,count:number){if(!Number.isSafeInteger(start)||start<0||!Number.isSafeInteger(count)||count<0)throw Error('Invalid virtual page');const node=id===this.base?undefined:this.node(id),list=id===this.base?this.root():node?this.below(node):[];return {total:list.length,children:list.slice(start,start+Math.min(count||BROWSE_LIMIT,BROWSE_LIMIT))};}
+ parent(axis:Axis,index:number){if(!Number.isSafeInteger(index)||index<0||index>=this.size(axis))return;let list=this.root();for(let depth=0;depth<8;depth++){const raw=list.find(x=>x.kind==='entry'&&x.axis===axis&&x.index===index);if(raw)return raw.parent;const next=list.find(x=>x.kind==='virtual'&&x.axis===axis&&(x.span===0||index>=x.start&&index<x.start+x.span)) as VirtualNode|undefined;if(!next)return;list=this.below(next);}return;}
+}
