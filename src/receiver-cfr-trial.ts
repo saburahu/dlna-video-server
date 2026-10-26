@@ -1,3 +1,4 @@
+import {COMPATIBLE_CONTAINER_CFR} from './compatible-container-cfr.js';
 import {snapshotHash,type CapabilitySnapshot} from './playback-shadow.js';
 
 /** Explicit individual experiment, not a model/family capability claim. No defaults. */
@@ -7,7 +8,7 @@ export interface ReceiverCfrTrial {
  configuredBy?:'operator'|'legacy-trial';updatedAt?:string;
 }
 export const RECEIVER_CFR='receiver-cfr-30000-1001-v1' as const;
-export type ReceiverCfr=typeof RECEIVER_CFR|'receiver-wmv3-cfr-30000-1001-trial-v1'|'receiver-h264-avi-cfr-30000-1001-trial-v1';
+export type ReceiverCfr=typeof RECEIVER_CFR|'receiver-wmv3-cfr-30000-1001-trial-v1'|'receiver-h264-avi-cfr-30000-1001-trial-v1'|typeof COMPATIBLE_CONTAINER_CFR;
 export function receiverCfrTrial(trials:ReceiverCfrTrial[]|undefined,cap:CapabilitySnapshot|undefined,probe:any,avc:boolean):ReceiverCfr|undefined {
  if(!avc||!cap?.implementation?.fingerprint||!probe)return;
  const videos=probe.streams?.filter((s:any)=>s.codec_type==='video')??[],v=videos[0];

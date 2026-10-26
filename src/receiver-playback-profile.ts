@@ -1,3 +1,4 @@
+import {compatibleContainerCfrInput,COMPATIBLE_CONTAINER_CFR} from './compatible-container-cfr.js';
 import {endpointFamilyFeatures,classifyClientFamily} from './client-family.js';
 import type {CapabilitySnapshot} from './playback-shadow.js';
 import type {DualAudioPermission} from './jit-dual-audio.js';
@@ -37,6 +38,7 @@ export function automaticDualAudioPermission(cap:CapabilitySnapshot|undefined,ta
  * decoder errors are audited during GET, so fps cannot conceal input gaps. */
 export function automaticReceiverCfr(cap:CapabilitySnapshot|undefined,p:any,avc:boolean):ReceiverCfr|undefined {
  if(!avc||cap?.playbackProfile?.version!==RECEIVER_PLAYBACK_VERSION||cap.playbackProfile.id!=='regza-intel-server-cfr-v1'||cap.implementation?.family!=='intel-upnp-layout')return;
+ if(compatibleContainerCfrInput(p))return COMPATIBLE_CONTAINER_CFR;
  const videos=p?.streams?.filter((s:any)=>s.codec_type==='video')??[],v=videos[0],audios=p?.streams?.filter((s:any)=>s.codec_type==='audio')??[];
  if(videos.length!==1||!(v.width>0&&v.width<=720&&v.height>0&&v.height<=576)||v.pix_fmt!=='yuv420p'||!['progressive','unknown',undefined].includes(v.field_order)||!audios.length||audios.length>2)return;
  const rate=v.avg_frame_rate==='0/0'||v.avg_frame_rate===undefined?v.r_frame_rate:v.avg_frame_rate;
@@ -50,9 +52,9 @@ export function automaticReceiverCfr(cap:CapabilitySnapshot|undefined,p:any,avc:
  }
 }
 export class AutomaticCfrInputAudit {
- frames=0;last:number|undefined;concealmentWarnings=0;preRollDecodeWarnings=0;
+ frames=0;last:number|undefined;concealmentWarnings=0;preRollDecodeWarnings=0;maxIntervalSeconds=0;intervalsOver100ms=0;
  private pendingDecodeError=false;
- constructor(readonly presentationStart=0){}
+ constructor(readonly presentationStart=0,private readonly interval?:(previous:number,current:number)=>void){}
  finish(){assert.ok(this.frames>0,'No audited input pictures');assert.ok(!this.pendingDecodeError,'Unresolved terminal video decode failure');}
  push(line:string){
   const audioDiagnostic=/\[aist#|\[dec:(?:mp3|aac|wma)/i.test(line);
@@ -70,7 +72,7 @@ export class AutomaticCfrInputAudit {
   assert.equal(Number(m[1]),this.frames++,'Input frame audit sequence');assert.equal(m[3],'P','Interlaced input outside automatic CFR scope');
   const t=Number(m[2]);assert.ok(Number.isFinite(t));
   if(this.pendingDecodeError){assert.ok(t<this.presentationStart,'Automatic CFR refuses a decode failure in the retained presentation range');this.preRollDecodeWarnings++;this.pendingDecodeError=false;}
-  if(this.last!==undefined)assert.ok(t>this.last&&t-this.last<2,'Input PTS reversal/duplicate/gap: CFR must not hide missing pictures');
+  if(this.last!==undefined){assert.ok(t>this.last&&t-this.last<2,'Input PTS reversal/duplicate/gap: CFR must not hide missing pictures');this.maxIntervalSeconds=Math.max(this.maxIntervalSeconds,t-this.last);if(t-this.last>.1){this.intervalsOver100ms++;this.interval?.(this.last,t);}}
   this.last=t;
   }
  }

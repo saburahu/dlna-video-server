@@ -1,3 +1,4 @@
+import {COMPATIBLE_CONTAINER_CFR} from './compatible-container-cfr.js';
 import {receiverCfrFirstTick,type ReceiverCfr} from './receiver-cfr-trial.js';
 import assert from 'node:assert/strict';
 import type {JitSeekPlan} from './jit-seek.js';
@@ -52,7 +53,7 @@ export function jitArguments(source:string,minimumTicks:number,seconds:number,se
  if(transforms.fullRange){a[a.indexOf('-vf')+1]=a[a.indexOf('-vf')+1].replace('flags=lanczos','flags=lanczos:in_range=pc:out_range=tv');a.splice(a.indexOf('-f'),0,'-color_range','tv');}
  a[a.indexOf('-vf')+1]='showinfo=checksum=0,'+(transforms.deinterlace?'bwdif=mode=send_frame:parity=auto:deint=all,':'')+a[a.indexOf('-vf')+1];
  if(transforms.receiverCfr){
-   assert.ok(['receiver-cfr-30000-1001-v1','receiver-wmv3-cfr-30000-1001-trial-v1','receiver-h264-avi-cfr-30000-1001-trial-v1'].includes(transforms.receiverCfr));
+   assert.ok(['receiver-cfr-30000-1001-v1','receiver-wmv3-cfr-30000-1001-trial-v1','receiver-h264-avi-cfr-30000-1001-trial-v1',COMPATIBLE_CONTAINER_CFR].includes(transforms.receiverCfr));
   assert.ok(!clock,'Receiver CFR and source clock reconstruction are distinct policies');
   const start=receiverCfrFirstTick(seek?.firstVideoTicks??0)/90000;
   a[a.indexOf('-vf')+1]+=(seek?`,fps=30000/1001:round=near:start_time=${start}`:',fps=30000/1001:round=near')+`,trim=end=${seconds}`;

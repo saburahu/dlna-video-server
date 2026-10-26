@@ -57,3 +57,8 @@ TVから見えない場合はDiagnose.cmdを実行してください。Windows�
 適格な受信機互換性profileとSD WMV3 Main / WMA Proの技術条件から、素材登録なしで入力を自動選択します。
 再生開始・2音声・SeekのPC検証と、未解決の自然EOF制限は別です。
 [対応条件と検証範囲](WMA_PRO_AUTOMATIC_INPUT.md)を確認してください。未公開候補であり、全WMA Pro・全受信機の保証ではありません。
+
+### v0.4.1候補：MKV／1080p MP4の受信機別CFR
+
+互換性プロファイルと入力の技術条件から通常CFRを自動選択します。ZP2系のVFRは維持します。
+[対応条件・安全監査・検証範囲](REGZA_CONTAINER_CFR.md)を確認してください。診断A/B機能は通常版に含めません。
