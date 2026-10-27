@@ -41,7 +41,7 @@ try{
  results.checks.push('Actual HTTP: absent write header, foreign Host/Origin and LAN administration rejected');
  const status=await fetch(base+'/api/status').then(r=>r.json());assert.equal(status.running,true);assert.equal(status.productVersion,'0.4.3');assert.ok(status.buildId?.startsWith('0.4.3'));assert.equal(status.logStorage.error,null);
  const trialPolicyFile=path.join(data,'experimental-catalog','jit.json'),trialBefore=await hash(trialPolicyFile);
- const trialState=await fetch(base+'/api/clients/mpeg2-trials').then(r=>r.json());assert.equal(trialState.version,'receiver-mpeg2-trial-settings-v1');
+ const trialState=await fetch(base+'/api/clients/mpeg2-trials').then(r=>r.json());assert.equal(trialState.version,'receiver-mpeg2-trial-settings-v1');assert.equal(trialState.automaticCandidate,(await read(path.join(app,'manifest.json'))).candidateFeatures?.mpeg2BoundExpansion==='automatic-v1');
  assert.equal((await fetch(base+'/api/clients/mpeg2-trials',{method:'POST',headers:{'Content-Type':'application/json','X-PT3-Management':'1',Origin:'https://attacker.example'},body:'{}'})).status,403);
  assert.equal((await fetch(base+'/api/clients/mpeg2-trials',{method:'POST',headers:{'Content-Type':'application/json','X-PT3-Management':'1'},body:JSON.stringify({id:'unobserved',revision:'stale',wmaProInput:true,dualAudio:true})})).status,409);
  assert.equal(await hash(trialPolicyFile),trialBefore);results.checks.push('MPEG-2 trial API: defaults off, cross-origin and unobserved receiver denied without changing policy');

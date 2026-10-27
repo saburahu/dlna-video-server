@@ -10,6 +10,7 @@ import{externalFFmpeg}from'./external-ffmpeg.mjs';
 const root=path.dirname(fileURLToPath(import.meta.url));
 const manifest=JSON.parse(await fs.readFile(path.join(root,'manifest.json'),'utf8'));
 process.env.PT3_BUILD_ID=manifest.buildId??manifest.release;
+if(manifest.candidateFeatures?.mpeg2BoundExpansion==='automatic-v1')process.env.PT3_MPEG2_CANDIDATE_AUTO='1';else delete process.env.PT3_MPEG2_CANDIDATE_AUTO;
 const config=JSON.parse(await fs.readFile(path.join(root,'launcher.json'),'utf8'));
 const data=path.resolve(config.data),logs=path.join(data,'logs');
 await fs.mkdir(logs,{recursive:true});

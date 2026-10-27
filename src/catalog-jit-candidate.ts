@@ -28,7 +28,7 @@ export function catalogJitCandidate(entry:ExperimentalEntry,p:ExperimentalJitPol
   if(source.video.bitDepth!==8||source.video.chroma!=='420'||(!['progressive','interlaced'].includes(source.video.scan??'')&&!frameSequence&&!legacy)||
     (!legacy&&(!source.video.profile||!Number.isFinite(source.video.level)))||!Number.isSafeInteger(source.video.codedWidth)||!Number.isSafeInteger(source.video.codedHeight)||source.video.codedWidth!<=0||source.video.codedHeight!<=0)return;
   const profile=p.policy.profiles.find(v=>v.id===p.targetProfile);if(!profile)return;
-  const mpeg2Trial=mpeg2TrialState(p.mpeg2ReceiverTrials,cap,p.targetProfile,!!p._admission?.binding);
+  const mpeg2Trial=mpeg2TrialState(p.mpeg2ReceiverTrials,cap,p.targetProfile,!!p._admission?.binding,process.env.PT3_MPEG2_CANDIDATE_AUTO==='1'&&p._admission?.route==='automatic');
   if(isMpeg2JitTarget(profile)&&(mpeg2UnsafeInput(probe)||(mpeg2Trial.wmaProInput||mpeg2Trial.dualAudio)&&!mpeg2InputEligibility(probe).eligible))return;
   const observations=p.policy.observations.filter(o=>o.deviceId===cap.deviceId&&o.sinkHash===cap.sinkHash).map(o=>o.observation);
   const evidence=observations.find(o=>o.profileId===profile.id&&o.outcome==='success'&&o.framing===profile.transport.value.framing)?.evidence;

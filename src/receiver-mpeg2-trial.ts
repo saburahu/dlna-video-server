@@ -7,13 +7,17 @@ export interface ReceiverMpeg2Trial {
 }
 /** Only an explicitly selected, request-bound, currently corroborated endpoint.
  * Source eligibility and all existing opt-outs remain separate, mandatory gates. */
-export function mpeg2TrialState(records:readonly ReceiverMpeg2Trial[]|undefined,cap:CapabilitySnapshot|undefined,target:string,bound:boolean){
+export function mpeg2TrialState(records:readonly ReceiverMpeg2Trial[]|undefined,cap:CapabilitySnapshot|undefined,target:string,bound:boolean,automaticCandidate=process.env.PT3_MPEG2_CANDIDATE_AUTO==='1'){
  const related=Array.isArray(records)?records.filter(r=>r?.deviceId===cap?.deviceId):[];
- const base={configured:related.length>0,revision:snapshotHash(JSON.stringify(related)),wmaProInput:false,dualAudio:false};
+ const base={automatic:false,configured:related.length>0,revision:snapshotHash(JSON.stringify(related)),wmaProInput:false,dualAudio:false};
  const no=(reason:string)=>({...base,reason});
  if(target!==MPEG2_TRIAL_TARGET)return no('not-mpeg2-target');
  if(records!==undefined&&!Array.isArray(records))return no('invalid-mpeg2-trial-list');
- if(!related.length)return no('mpeg2-trial-not-configured');
+ if(!related.length){
+  if(!automaticCandidate)return no('mpeg2-trial-not-configured');
+  if(!bound||!cap||cap.origin!=='current-read'||cap.implementation?.version!==FAMILY_VERSION||cap.implementation.family!=='dixim-service-layout'||!cap.implementation.fingerprint||!cap.controlUrl||snapshotHash(cap.sink)!==cap.sinkHash)return no('current-bound-mpeg2-client-required');
+  return {...base,automatic:true,revision:snapshotHash('candidate-auto-bound-mpeg2-v1'),wmaProInput:true,dualAudio:true,reason:'candidate-auto-bound-mpeg2'};
+ }
  if(related.length!==1)return no('ambiguous-mpeg2-trial');
  if(!bound||!cap||cap.origin!=='current-read'||cap.implementation?.version!==FAMILY_VERSION||cap.implementation.family!=='dixim-service-layout')return no('current-bound-mpeg2-client-required');
  const r=related[0];
