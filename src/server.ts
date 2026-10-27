@@ -1,5 +1,3 @@
-import {createDbrColorTrial,appendColorTrialRoot,COLOR_PROTOCOL} from './dbr-color-trial.js';
-import {prepareColorAsset} from './dbr-color-asset.js';
 import {PRODUCT_VERSION} from './product-version.js';
 import { createReadStream, promises as fs } from "node:fs";
 import http, { IncomingMessage, ServerResponse } from "node:http";
@@ -57,8 +55,7 @@ const clientDiagnostics=createClientContractDiagnostics(path.resolve(process.env
 const avcControl=createAvcHttpControl(path.resolve(process.env.PT3_DATA_DIR||'data','avc-http-control'),path.resolve(experimentalCatalogDirectory(),'jit.json'),(message,detail)=>log('AVC_HTTP_CONTROL',message,detail));
 const mpegTsTrial=createMpegTsTrial(path.resolve(process.env.PT3_DATA_DIR||'data','mpeg-ts-trial'),(message,detail)=>log('MPEG_TS_TRIAL',message,detail));
 const pictureTrial=createAvcPictureTrial(path.resolve(process.env.PT3_DATA_DIR||'data','avc-picture-trial'),(message,detail)=>log('AVC_PICTURE_TRIAL',message,detail));
-const colorTrial=createDbrColorTrial({prepare:async(id,signal,progress)=>{const entry=await experimentalCatalog.entry(id);if(!entry||entry.sourceStale)throw Error('Current catalog source required');return prepareColorAsset(entry.fingerprint.path,path.resolve(process.env.PT3_DATA_DIR||'data','dbr-color-trial'),settings.folders,signal,v=>{if(activeMediaReads>0)throw Error('Normal playback started; trial preparation stopped');progress(v);});},peers:()=>experimentalCatalog.colorTrialPeers(),verifyPeer:(id,remote)=>experimentalCatalog.verifyColorTrialPeer(id,remote),busy:()=>activeMediaReads>0,trace:(event,detail)=>log('DBR_COLOR_TRIAL',event,detail)});
-const cdEvents=contentDirectoryEvents(async()=>(systemUpdateId+await experimentalCatalog.updateId()+PUBLIC_MENU_REVISION+colorTrial.revision())>>>0,(message,detail)=>log('UPNP_EVENT',message,detail));
+const cdEvents=contentDirectoryEvents(async()=>(systemUpdateId+await experimentalCatalog.updateId()+PUBLIC_MENU_REVISION)>>>0,(message,detail)=>log('UPNP_EVENT',message,detail));
 function beginTrial(programId?: string, note?: string) {
   trial = { id: randomUUID(), profile: settings.profile, startedAt: new Date().toISOString(), programId, note };
   trials.set(trial.id, trial);
@@ -433,31 +430,24 @@ async function handler(req: IncomingMessage, res: ServerResponse) {
   const url = new URL(req.url || "/", `http://${req.headers.host || "localhost"}`);
   const ip = req.socket.remoteAddress || "";
   if (!isPrivateAddress(ip)) return sendJson(res, 403, { error: "家庭内LANからのみ利用できます" });
-  const deviceRoute=/^\/(?:upnp\/|media\/|library\/|experimental\/|client-diagnostic\/|avc-http-control\/|avc-picture-trial\/|mpeg-ts-trial\/|dbr-color-trial\/media\/)/.test(url.pathname);
+  // Retired endpoints/assets stay unreachable even after an overlay leaves old files.
+  if(/^\/(?:api\/dbr-color-trial(?:\/|$)|dbr-color-trial(?:[./]|$))/i.test(url.pathname))return sendJson(res,404,{error:'Not found'});
+  const deviceRoute=/^\/(?:upnp\/|media\/|library\/|experimental\/|client-diagnostic\/|avc-http-control\/|avc-picture-trial\/|mpeg-ts-trial\/)/.test(url.pathname);
   if(!deviceRoute){const denied=managementAccess(req,boundPort||settings.port);if(denied)return sendJson(res,403,{error:denied});res.setHeader('X-Frame-Options','DENY');res.setHeader('X-Content-Type-Options','nosniff');res.setHeader('Content-Security-Policy',"frame-ancestors 'none'; base-uri 'none'");}
-  if(req.method==='GET'&&/^\/(?:media\/|library\/(?:jit|direct)\/|experimental\/|client-diagnostic\/media\/|avc-http-control\/media\/|avc-picture-trial\/media\/|mpeg-ts-trial\/media\/|dbr-color-trial\/media\/)/.test(url.pathname)){
+  if(req.method==='GET'&&/^\/(?:media\/|library\/(?:jit|direct)\/|experimental\/|client-diagnostic\/media\/|avc-http-control\/media\/|avc-picture-trial\/media\/|mpeg-ts-trial\/media\/)/.test(url.pathname)){
     activeMediaReads++;let released=false;const release=()=>{if(!released){released=true;activeMediaReads--;}};res.once('close',release);res.once('finish',release);
   }
   if (!sockets.has(req.socket)) sockets.set(req.socket, randomUUID());
   requests.set(req, { trialId: trial.id, savedProfile: settings.profile, connectionId: randomUUID(),
     socketId: sockets.get(req.socket), method: req.method, url: url.pathname, requestStartedMs: started });
-  if(/^\/(?:library\/(?:jit|direct)\/|experimental\/(?:media|jit|catalog-jit)\/|client-diagnostic\/media\/|avc-http-control\/media\/|avc-picture-trial\/media\/|mpeg-ts-trial\/media\/|dbr-color-trial\/media\/)/.test(url.pathname)){
+  if(/^\/(?:library\/(?:jit|direct)\/|experimental\/(?:media|jit|catalog-jit)\/|client-diagnostic\/media\/|avc-http-control\/media\/|avc-picture-trial\/media\/|mpeg-ts-trial\/media\/)/.test(url.pathname)){
     const release=pcrWork.reserve();res.once('close',release);res.once('finish',release);
   }
   try{const observed=familyShadow.observe(ip,req.headers);if(observed)log('CLIENT_FAMILY_SHADOW','Implementation family observation',{...observed,request:requests.get(req)});}catch{}
-  if(/^\/(?:media\/|library\/(?:jit|direct)\/|experimental\/(?:media|jit|catalog-jit)\/|client-diagnostic\/media\/|avc-http-control\/media\/|avc-picture-trial\/media\/|mpeg-ts-trial\/media\/|dbr-color-trial\/media\/)/.test(url.pathname))
+  if(/^\/(?:media\/|library\/(?:jit|direct)\/|experimental\/(?:media|jit|catalog-jit)\/|client-diagnostic\/media\/|avc-http-control\/media\/|avc-picture-trial\/media\/|mpeg-ts-trial\/media\/)/.test(url.pathname))
     observeHttpTransfer(req,res,(event,detail)=>log('HTTP_TRANSFER',event,detail,req));
   try {
-    if(url.pathname.startsWith('/dbr-color-trial/media/'))return await colorTrial.media(req,res,url.pathname.slice('/dbr-color-trial/media/'.length),await experimentalCatalog.client(req));
     if (url.pathname.startsWith("/api/")) {
-      if(url.pathname==='/api/dbr-color-trial'){
-        const denied=managementAccess(req,boundPort||settings.port);if(denied)return sendJson(res,403,{error:denied});
-        if(req.method==='GET')return sendJson(res,200,url.searchParams.has('q')?{sources:await experimentalCatalog.colorTrialSources(url.searchParams.get('q')!.slice(0,200))}:await colorTrial.status());
-        if(req.method==='POST'){
-          if(req.headers['x-pt3-management']!=='1'||!String(req.headers['content-type']).startsWith('application/json')||(req.headers.origin&&req.headers.origin!==`http://${req.headers.host}`)||req.headers['sec-fetch-site']==='cross-site')return sendJson(res,403,{error:'Same-origin management operation required'});
-          try{return sendJson(res,200,await colorTrial.configure(JSON.parse(await body(req,8192))));}catch(e){return sendJson(res,409,{error:String(e)});}
-        }return sendJson(res,405,{error:'GET/POST only'});
-      }
       if(url.pathname==='/api/clients/mpeg2-trials'){
         if(req.method==='GET')return sendJson(res,200,await experimentalCatalog.mpeg2TrialStatus());
         if(req.method==='POST'){
@@ -690,14 +680,11 @@ async function handler(req: IncomingMessage, res: ServerResponse) {
         }
         const xml=browseDIDL(`item:${p.id}`,0,1,[p],baseUrl(),profile,true,r).didl;return /<item\b[\s\S]*?<\/item>/.exec(xml)?.[0];
       }):undefined;
-      const colorPage=browse?await colorTrial.browse(browse,await experimentalCatalog.client(req),baseUrl(),req.headers,payload):undefined;
-      const normalPage=colorPage??picturePage??folderPage??libraryPage;
+      const normalPage=picturePage??folderPage??libraryPage;
       let result = normalPage?experimentalBrowseSoap({...normalPage,updateId:(systemUpdateId+(normalPage.updateId??0))>>>0},systemUpdateId):experimentalPage ? experimentalBrowseSoap({...experimentalPage,updateId:(systemUpdateId+(experimentalPage.updateId??0))>>>0}, systemUpdateId) : soapResponse(action, payload, baseUrl(), programs, profile, resources);
-      if(action==='Browse'&&colorTrial.revision())result=result.replace(/<UpdateID>\d+<\/UpdateID>/,`<UpdateID>${(systemUpdateId+await experimentalCatalog.updateId()+colorTrial.revision())>>>0}</UpdateID>`);
-      if(action==='GetSystemUpdateID'){const catalogUpdate=await experimentalCatalog.updateId();if(catalogUpdate||colorTrial.revision())result=result.replace(/<Id>\d+<\/Id>/,`<Id>${(systemUpdateId+catalogUpdate+colorTrial.revision())>>>0}</Id>`);}
+      if(action==='GetSystemUpdateID'){const catalogUpdate=await experimentalCatalog.updateId();if(catalogUpdate)result=result.replace(/<Id>\d+<\/Id>/,`<Id>${(systemUpdateId+catalogUpdate)>>>0}</Id>`);}
       if (action === 'GetProtocolInfo') {
         const experimentalProtocols = await experimentalCatalog.protocolInfos(await experimentalCatalog.client(req));
-        if(await colorTrial.visible(await experimentalCatalog.client(req),req.headers,payload))experimentalProtocols.push(COLOR_PROTOCOL);
         if (experimentalProtocols.length) result = result.replace(/<Source>([^<]*)<\/Source>/, (_, original) => `<Source>${original}${original ? ',' : ''}${escapeXml(experimentalProtocols.join(','))}</Source>`);
         const diagnosticProtocol=await clientDiagnostics.protocolInfo(req.socket.remoteAddress||'');
         if(diagnosticProtocol)result=result.replace(/<Source>([^<]*)<\/Source>/,(_,original)=>`<Source>${original}${original?',':''}${escapeXml(diagnosticProtocol)}</Source>`);
@@ -705,7 +692,6 @@ async function handler(req: IncomingMessage, res: ServerResponse) {
         if(mpegTsProtocol)result=result.replace(/<Source>([^<]*)<\/Source>/,(_,original)=>`<Source>${original}${original?',':''}${escapeXml(mpegTsProtocol)}</Source>`);
       }
       result=menuRevisionSoap(result,action);
-      if(browse?.objectId==='0'&&await colorTrial.visible(await experimentalCatalog.client(req),req.headers,payload))result=appendColorTrialRoot(result,browse);
       if(browse?.objectId==='0')result=appendPictureRoot(result,browse,await pictureTrial.count(await experimentalCatalog.client(req)));
       // Retain the actual Browse declaration without changing the playback profile.
       // Bound XML copies so a large catalogue does not exhaust JSONL retention.
@@ -728,7 +714,7 @@ async function handler(req: IncomingMessage, res: ServerResponse) {
     const full = path.join(root, "public", file);
     const data = await fs.readFile(full);
     const type = file.endsWith(".css") ? "text/css" : file.endsWith(".js") ? "text/javascript" : "text/html";
-    res.writeHead(200, { "Content-Type": `${type}; charset=utf-8`, "Content-Length": data.length }); res.end(data);
+    res.writeHead(200, { "Content-Type": `${type}; charset=utf-8`, "Cache-Control": "no-store", "Content-Length": data.length }); res.end(data);
   } catch (e) {
     log("ERROR", `${req.method} ${url.pathname}`, String(e), req);
     if (!res.headersSent) sendJson(res, 500, { error: String(e) }); else res.end();
@@ -757,4 +743,4 @@ server.listen(settings.port, "0.0.0.0", async () => {
   try{await experimentalCatalog.rescan();}catch(error){log('ERROR','初回全メディアスキャン失敗',String(error));}
   pcrBackground.start();experimentalCatalog.startBackground();
 });
-for (const signal of ["SIGINT", "SIGTERM"]) process.on(signal, () => { cdEvents.close();ssdp.stop(); void Promise.all([colorTrial.close(),experimentalCatalog.stopBackground(),pcrBackground.stop()]).finally(()=>server.close(() => process.exit(0))); });
+for (const signal of ["SIGINT", "SIGTERM"]) process.on(signal, () => { cdEvents.close();ssdp.stop(); void Promise.all([experimentalCatalog.stopBackground(),pcrBackground.stop()]).finally(()=>server.close(() => process.exit(0))); });
