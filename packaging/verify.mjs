@@ -39,7 +39,7 @@ try{
  assert.equal((await fetch(base+'/api/status',{headers:{Origin:'https://attacker.example'}})).status,403,'foreign Origin');
  const lan=Object.values(os.networkInterfaces()).flat().find(i=>i?.family==='IPv4'&&!i.internal);if(lan)assert.equal((await fetch('http://'+lan.address+':19204/api/status')).status,403,'LAN management');
  results.checks.push('Actual HTTP: absent write header, foreign Host/Origin and LAN administration rejected');
- const status=await fetch(base+'/api/status').then(r=>r.json());assert.equal(status.running,true);assert.equal(status.productVersion,'0.4.2');assert.ok(status.buildId?.startsWith('0.4.2'));assert.equal(status.logStorage.error,null);
+ const status=await fetch(base+'/api/status').then(r=>r.json());assert.equal(status.running,true);assert.equal(status.productVersion,'0.4.3');assert.ok(status.buildId?.startsWith('0.4.3'));assert.equal(status.logStorage.error,null);
  assert.match(await fetch(base+'/').then(r=>r.text()),/<html/i);
  assert.match(await fetch(base+'/upnp/device.xml').then(r=>r.text()),new RegExp(settings.udn));
  assert.ok((await fetch(base+'/upnp/device.xml').then(r=>r.text())).includes('<friendlyName>PT3 居間 &amp; 録画</friendlyName>'));

@@ -19,7 +19,7 @@ export interface DualAudioPlan {
  version:'wmv3-two-wmapro-48k-stereo-v1'|'wmv3-two-wmav2-48k-stereo-v1'|'avi-h264-two-mp3-48k-stereo-v1'|'mp4-h264-two-aaclc-48k-stereo-v1'|'mkv-hevc-two-aaclc-48k-stereo-v1';targetProfile:string;mpeg2:boolean;
  sourceSignature:string;audioIndices:number[];audioPids:number[];
 }
-export function selectDualAudio(permissions:readonly DualAudioPermission[]|undefined,cap:CapabilitySnapshot|undefined,probe:any,targetProfile:string,mpeg2:boolean,bound:boolean,fingerprint?:Fingerprint,receiverCfr?:string){
+export function selectDualAudio(permissions:readonly DualAudioPermission[]|undefined,cap:CapabilitySnapshot|undefined,probe:any,targetProfile:string,mpeg2:boolean,bound:boolean,fingerprint?:Fingerprint,receiverCfr?:string,mpeg2Trial=false){
  const no=(reason:string)=>({plan:undefined as DualAudioPlan|undefined,permission:undefined as DualAudioPermission|undefined,reason});
  const audio=probe?.streams?.filter((s:any)=>s.codec_type==='audio')??[],videos=probe?.streams?.filter((s:any)=>s.codec_type==='video')??[];
  if(audio.length<2)return no('single-source-audio');
@@ -40,7 +40,7 @@ export function selectDualAudio(permissions:readonly DualAudioPermission[]|undef
  if(relevant.length>1)return no('dual-audio-ambiguous-source-exception');
  // A same-path stale/disabled exception, including a CFR dependency, wins over
  // the general capability: it must fail closed rather than silently bypass it.
- const automaticPermission=automaticDualAudioPermission(cap,targetProfile,mpeg2);
+ const automaticPermission=automaticDualAudioPermission(cap,targetProfile,mpeg2,mpeg2Trial);
  const permission=relevant[0]??general[0]??automaticPermission;
  if(!permission)return no(records.length?'dual-audio-source-scope-mismatch':'receiver-target-not-enrolled-for-dual-audio');
  if(!permission.enabled)return no('receiver-target-not-enrolled-for-dual-audio');
@@ -70,7 +70,7 @@ export function selectDualAudio(permissions:readonly DualAudioPermission[]|undef
  // must never be overridden, and AVI keeps its original average-rate gate.
  const rate=wmv&&v.avg_frame_rate==='0/0'?v.r_frame_rate:v.avg_frame_rate??v.r_frame_rate;
  const [n,d]=String(rate).split('/').map(Number);
- if((!wmv&&!avi)||!(v.width>0&&v.width<=720&&v.height>0&&v.height<=576)||!(wmv&&automaticPermission&&audio.every((a:any)=>a.codec_name==='wmapro')?[24000/1001,30000/1001]:[24000/1001]).some(r=>Math.abs(n/d-r)<.002)||!Number.isFinite(n/d)||!Number.isFinite(duration)||duration<=0)return no('dual-audio-video-container-scope-unverified');
+ if((!wmv&&!avi)||!(v.width>0&&v.width<=720&&v.height>0&&v.height<=576)||!(wmv&&(mpeg2||automaticPermission&&audio.every((a:any)=>a.codec_name==='wmapro'))?[24000/1001,30000/1001]:[24000/1001]).some(r=>Math.abs(n/d-r)<.002)||!Number.isFinite(n/d)||!Number.isFinite(duration)||duration<=0)return no('dual-audio-video-container-scope-unverified');
  const codec=audio[0].codec_name;
  // WMA v2 ASF headers often omit a channel mask. The tested two-channel decoder
  // output is stereo; do not reinterpret an explicit different layout or admit

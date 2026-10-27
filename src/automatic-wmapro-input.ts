@@ -1,3 +1,4 @@
+import {mpeg2InputEligibility} from './mpeg2-input-scope.js';
 import {RECEIVER_PLAYBACK_VERSION} from './receiver-playback-profile.js';
 import type {CapabilitySnapshot,Fingerprint} from './playback-shadow.js';
 import type {WmaInputPermission} from './wma-input-permission.js';
@@ -6,10 +7,11 @@ import path from 'node:path';
 
 /** Admission to the existing source-clock-v2 execution path, NOT a new clock.
  * Finite playback and terminal coverage are independently runtime-audited. */
-export function automaticWmaProInput(probe:any,cap:CapabilitySnapshot,target:string,policy:WmaInputPolicy|undefined,exceptions:readonly WmaInputPermission[]|undefined,fingerprint:Fingerprint){
+export function automaticWmaProInput(probe:any,cap:CapabilitySnapshot,target:string,policy:WmaInputPolicy|undefined,exceptions:readonly WmaInputPermission[]|undefined,fingerprint:Fingerprint,mpeg2Trial=false){
  const no=(reason:string)=>({eligible:false,reason,version:'automatic-wmapro-input-v1' as const});
- if(!['source-clock-v1','source-clock-v2'].includes(policy??'')||target!=='legacy-jp-observed')return no('wmapro-input-policy-disabled-or-target-unsupported');
- if(cap.playbackProfile?.version!==RECEIVER_PLAYBACK_VERSION||!['regza-intel-server-cfr-v1','regza-intel-renderer-vfr-v1'].includes(cap.playbackProfile.id)||cap.implementation?.family!=='intel-upnp-layout')return no('wmapro-current-compatible-receiver-evidence-required');
+ const mpeg2=mpeg2Trial&&mpeg2InputEligibility(probe).eligible&&target==='mpeg2-jp-pcr-split-v1'&&cap.implementation?.family==='dixim-service-layout'&&cap.implementation.version==='upnp-implementation-shadow-v1';
+ if(!['source-clock-v1','source-clock-v2'].includes(policy??'')||target!=='legacy-jp-observed'&&!mpeg2)return no('wmapro-input-policy-disabled-or-target-unsupported');
+ if(!mpeg2&&(cap.playbackProfile?.version!==RECEIVER_PLAYBACK_VERSION||!['regza-intel-server-cfr-v1','regza-intel-renderer-vfr-v1'].includes(cap.playbackProfile.id)||cap.implementation?.family!=='intel-upnp-layout'))return no('wmapro-current-compatible-receiver-evidence-required');
  // A source-specific opt-out/stale/ambiguous record is never bypassed. A valid
  // enabled exception is handled separately by scopedWmaInputPermission.
  const related=(exceptions??[]).filter(p=>p?.deviceId===cap.deviceId&&p.targetProfile===target);

@@ -1,3 +1,4 @@
+import {receiverCompatibilityAxes} from './receiver-compatibility-axes.js';
 import {randomUUID} from 'node:crypto';
 import path from 'node:path';
 import {FAMILY_VERSION,requestFamilyFeatures,classifyClientFamily,classifyRequestContext,type FamilySignal} from './client-family.js';
@@ -9,7 +10,7 @@ import type {ExperimentalJitPolicy} from './experimental-jit.js';
 import type {MediaProfileDefinition} from './playback-decision.js';
 
 export const AUTOMATIC_CLIENT_VERSION='family-candidate-v1';
-export interface AutomaticClientResolution {reason:string;binding?:string;endpoint?:DiscoveredClientEndpoint;profile?:MediaProfileDefinition;trial?:JitClientTrial;context?:ReturnType<typeof classifyRequestContext>;evidence?:typeof FAMILY_RECEIVE_EVIDENCE[number];observed?:{fresh:boolean;endpoints:DiscoveredClientEndpoint[];requests:FamilySignal[]}}
+export interface AutomaticClientResolution {compatibilityAxes?:ReturnType<typeof receiverCompatibilityAxes>;reason:string;binding?:string;endpoint?:DiscoveredClientEndpoint;profile?:MediaProfileDefinition;trial?:JitClientTrial;context?:ReturnType<typeof classifyRequestContext>;evidence?:typeof FAMILY_RECEIVE_EVIDENCE[number];observed?:{fresh:boolean;endpoints:DiscoveredClientEndpoint[];requests:FamilySignal[]}}
 /** Recipe-pinned empirical associations. Counts/references are observations,
  * never a normative guarantee, a Source advertisement or a model match. */
 export const FAMILY_RECEIVE_EVIDENCE=[
@@ -37,7 +38,7 @@ export function automaticClientSelection(endpoints:readonly DiscoveredClientEndp
   recipeFingerprint:evidence.recipe,containers:p.automaticClients?.legacyInputs?['mp4','matroska','avi','asf','ogg']:['mp4','matroska'],reference:`${evidence.reference}; inferred family candidate, this receiver unverified`,
   automaticEvidence:{version:AUTOMATIC_CLIENT_VERSION,evidenceId:evidence.id,family,confidence:context.confidence,requestFingerprint:classifyClientFamily(requests).fingerprint,endpointFingerprint:endpoint.capability.implementation!.fingerprint,...(p.automaticClients?.legacyInputs?{inputPolicy:'jit-legacy-inputs-v1' as const}:{})},
   familyEvidence:{version:FAMILY_VERSION,family,endpointFingerprint:endpoint.capability.implementation!.fingerprint,requestFingerprint:classifyClientFamily(requests).fingerprint,observedAt:endpoint.capability.acquiredAt,reference:evidence.reference}};
- return {reason:'empirical-family-candidate',endpoint,profile,trial,context,evidence};
+ return {reason:'empirical-family-candidate',endpoint,profile,trial,context,evidence,compatibilityAxes:receiverCompatibilityAxes(endpoint.features,endpoint.capability.sink,endpoint.capability.playbackProfile,requests,endpoints.map(e=>e.features))};
 }
 
 /** Bounds both peer state and read-only jobs. Browse only observes/enqueues: no

@@ -1,3 +1,5 @@
+import {mpeg2InputEligibility,mpeg2UnsafeInput} from './mpeg2-input-scope.js';
+import {isMpeg2JitTarget} from './mpeg2-jit-target.js';
 import {matchingJitTrial,trialProfile} from './jit-client-trial.js';
 import {decidePlayback} from './playback-decision.js';
 import {sourceFromProbe} from './playback-shadow-store.js';
@@ -25,11 +27,12 @@ export function catalogJitCandidate(entry:ExperimentalEntry,p:ExperimentalJitPol
   if(source.video.bitDepth!==8||source.video.chroma!=='420'||(!['progressive','interlaced'].includes(source.video.scan??'')&&!frameSequence&&!legacy)||
     (!legacy&&(!source.video.profile||!Number.isFinite(source.video.level)))||!Number.isSafeInteger(source.video.codedWidth)||!Number.isSafeInteger(source.video.codedHeight)||source.video.codedWidth!<=0||source.video.codedHeight!<=0)return;
   const profile=p.policy.profiles.find(v=>v.id===p.targetProfile);if(!profile)return;
+  if(isMpeg2JitTarget(profile)&&(mpeg2UnsafeInput(probe)||p.mpeg2InputTrial===true&&!mpeg2InputEligibility(probe).eligible))return;
   const observations=p.policy.observations.filter(o=>o.deviceId===cap.deviceId&&o.sinkHash===cap.sinkHash).map(o=>o.observation);
   const evidence=observations.find(o=>o.profileId===profile.id&&o.outcome==='success'&&o.framing===profile.transport.value.framing)?.evidence;
   const trial=matchingJitTrial(p.clientTrials,cap,profile);
   if(trial?.automaticEvidence&&['avi','asf','ogg'].includes(source.transport.container)&&!p.automaticClients?.legacyInputs)return;
-  if(trial?.automaticEvidence?.inputPolicy==='jit-legacy-inputs-v1'&&!wmaInputAllowed(source.audio?.codec??'',Number(audio?.sample_rate),audio?.channels,audio?.channel_layout,p.automaticClients?.wmaInputs,source.video.codec)&&!scopedWmaInputPermission(p.wmaInputPermissions,cap,p.targetProfile,entry.fingerprint,probe)&&!automaticWmaProInput(probe,cap,p.targetProfile,p.automaticClients?.wmaInputs,p.wmaInputPermissions,entry.fingerprint).eligible)return;
+  if(trial?.automaticEvidence?.inputPolicy==='jit-legacy-inputs-v1'&&!wmaInputAllowed(source.audio?.codec??'',Number(audio?.sample_rate),audio?.channels,audio?.channel_layout,p.automaticClients?.wmaInputs,source.video.codec)&&!scopedWmaInputPermission(p.wmaInputPermissions,cap,p.targetProfile,entry.fingerprint,probe)&&!automaticWmaProInput(probe,cap,p.targetProfile,p.automaticClients?.wmaInputs,p.wmaInputPermissions,entry.fingerprint,p.mpeg2InputTrial===true).eligible)return;
   if(trial&&!trial.containers.includes(source.transport.container))return;
   if(!evidence&&!trial)return;
   const target=trial?trialProfile(profile,trial):{...profile,video:{...profile.video,evidence:evidence!},audio:{...profile.audio,evidence:evidence!},transport:{...profile.transport,evidence:evidence!}};

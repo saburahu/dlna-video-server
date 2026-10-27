@@ -1,3 +1,5 @@
+> v0.4.3開発候補。追加MPEG-2入力は既定無効の実機検証候補です。[変更と制限](packaging/release-notes/0.4.3.md)。
+
 > v0.4.2：[1000件制限向け仮想フォルダー](VIRTUAL_FOLDERS.md)。大規模ライブラリのBrowseを改善します。
 
 # DLNA Video Server

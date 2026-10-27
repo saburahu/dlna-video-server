@@ -1,0 +1,7 @@
+/** Description scoping only: a sibling/embedded DMS is not the selected CM endpoint. */
+export function deviceDescriptions(xml:string){
+ const stack:{start:number;open:number;children:{start:number;end:number}[]}[]=[],nodes:{id:string;xml:string;start:number}[]=[];
+ for(const m of xml.matchAll(/<(\/?)(?:[A-Za-z_][\w.-]*:)?device\b[^>]*>/g)){const start=m.index!;if(!m[1]){if(stack.length>=16)throw Error('UPnP device nesting limit');stack.push({start,open:start+m[0].length,children:[]});}else{const n=stack.pop();if(!n)throw Error('Malformed UPnP device description');let direct=xml.slice(n.open,start);for(const c of n.children.reverse())direct=direct.slice(0,c.start-n.open)+direct.slice(c.end-n.open);const id=/<(?:\w+:)?UDN>([^<]+)</.exec(direct)?.[1]?.trim();nodes.push({id:id??'',xml:'<root><device>'+direct+'</device></root>',start:n.start});if(stack.length)stack.at(-1)!.children.push({start:n.start,end:start+m[0].length});if(nodes.length>128)throw Error('UPnP device count limit');}}
+ if(stack.length)throw Error('Unclosed UPnP device description');return nodes.sort((a,b)=>a.start-b.start);
+}
+export function selectedDeviceDescription(xml:string,id?:string){const nodes=deviceDescriptions(xml);if(!nodes.length)return xml;const found=id?nodes.filter(n=>n.id===id):nodes.slice(0,1);if(found.length!==1||!found[0].id)throw Error('Selected description identity changed or ambiguous');return found[0].xml;}

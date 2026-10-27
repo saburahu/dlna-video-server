@@ -1,3 +1,4 @@
+import {selectedDeviceDescription} from './device-description-scope.js';
 import dgram from 'node:dgram';
 import {isIP} from 'node:net';
 import {networkInterfaces} from 'node:os';
@@ -55,7 +56,7 @@ export async function readClientLocations(remote:string,locations:ReadonlyMap<st
   const url=new URL(location);if(url.protocol!=='http:'||url.hostname!==remote||url.username||url.password){report('unsafe-location');continue;}
   const response=await fetch(location,{signal:AbortSignal.timeout(2000),redirect:'error'});if(!response.ok){report(`http-${response.status}`);continue;}
   const chunks:Buffer[]=[];let size=0;for await(const part of response.body!){size+=part.length;if(size>262144){await response.body?.cancel().catch(()=>{});throw Error('Description too large');}chunks.push(Buffer.from(part));}
-  const xml=Buffer.concat(chunks).toString('utf8'),deviceId=xmlValue(xml,'UDN');if(!deviceId){report('missing-udn');continue;}
+  const xml=selectedDeviceDescription(Buffer.concat(chunks).toString('utf8')),deviceId=xmlValue(xml,'UDN');if(!deviceId){report('missing-udn');continue;}
   const expected=known.filter(d=>d.remoteIp===remote&&d.descriptionUrl===location&&d.deviceId);
   if(expected.some(d=>d.deviceId!==deviceId)){report('identity-mismatch');continue;}
   const features=endpointFamilyFeatures(xml,[...servers,response.headers.get('server')??'']);
