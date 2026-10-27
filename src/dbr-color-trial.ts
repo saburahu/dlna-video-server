@@ -10,6 +10,7 @@ import {deliverCapturedMpeg2} from './captured-mpeg2-trial.js';
 import {MPEG2_JIT_FEATURES} from './mpeg2-jit-target.js';
 import {verifyColorAsset,type ColorAsset} from './dbr-color-asset.js';
 
+export const COLOR_SESSION_LIMITS={maxGets:4,maxHeads:16,reconnectGapMs:5000,captureCopies:2} as const;
 export const COLOR_ROOT='dbr-color-trial';
 const FEATURES=MPEG2_JIT_FEATURES.replace('DLNA.ORG_OP=10','DLNA.ORG_OP=00');
 export const colorRequestMatches=(headers:Record<string,unknown>,xml='')=>{const f=[...new Set(requestFamilyFeatures(headers,xml).map(v=>v.family))];return f.length===1&&f[0]==='dixim-service-layout';};
@@ -31,12 +32,12 @@ interface Dependencies {
 /** Ephemeral, receiver-bound playback session. Never writes normal admission or catalog. */
 export function createDbrColorTrial(d:Dependencies){
  const now=d.now??Date.now;let preparedSourceId='',revision=0,phase='idle',progress:any,asset:ColorAsset|undefined,error:string|undefined,controller:AbortController|undefined,job:Promise<void>|undefined;
- type Grant={token:string;peer:Peer;binding:string;expires:number;gets:number;heads:number;firstGet?:number;lastClose?:number;active?:ServerResponse;delivery?:Promise<void>};let grant:Grant|undefined;
+ type Grant={token:string;peer:Peer;binding:string;expires:number;gets:number;heads:number;bytes:number;maxBytes:number;durationMs:number;firstGet?:number;lastClose?:number;active?:ServerResponse;pending?:ServerResponse;pendingAttempt?:number;delivery?:Promise<void>;lastRequest?:unknown};let grant:Grant|undefined;let lastResult:{reason:string;at:string;gets:number;heads:number;bytes:number;maxBytes:number;lastRequest?:unknown}|undefined;
  const changed=(event:string,detail:unknown={})=>{revision++;d.trace(event,{revision,detail});};
- function revoke(reason:string){const previous=grant;grant=undefined;if(previous?.active&&!previous.active.writableEnded)previous.active.destroy();if(previous)changed('REVOKED',{reason,gets:previous.gets,heads:previous.heads});}
- function tick(){if(grant&&now()>=grant.expires)revoke('expired');}
+ function revoke(reason:string){const previous=grant;grant=undefined;if(previous?.active&&!previous.active.writableEnded)previous.active.destroy();if(previous?.pending&&!previous.pending.writableEnded)previous.pending.destroy();if(previous){lastResult={reason,at:new Date(now()).toISOString(),gets:previous.gets,heads:previous.heads,bytes:previous.bytes,maxBytes:previous.maxBytes,lastRequest:previous.lastRequest};changed('REVOKED',lastResult);}}
+ function tick(){const g=grant;if(!g)return;if(now()>=g.expires)revoke('expired');else if(g.firstGet!==undefined&&now()-g.firstGet>=g.durationMs)revoke('playback-window-ended');else if(g.lastClose!==undefined&&!g.active&&!g.pending&&now()-g.lastClose>COLOR_SESSION_LIMITS.reconnectGapMs)revoke('reconnect-gap-ended');}
  const timer=setInterval(tick,250);timer.unref();
- async function status(){tick();return {revision,phase,progress,error,asset:asset?{sourceId:preparedSourceId,sourceTitle:asset.source?path.basename(asset.source):preparedSourceId,sha256:asset.sha256,size:asset.size,seconds:asset.seconds,audit:asset.audit}:undefined,publication:grant?{expires:grant.expires,peer:grant.peer.title,gets:grant.gets,heads:grant.heads,active:!!grant.active}:undefined,peers:await d.peers(),risk:'過去にDBRが操作不能となり電源再投入が必要でした。色変換・30秒制限は安全を保証しません。異常時は試験を中止し、再試行しないでください。'};}
+ async function status(){tick();return {revision,phase,progress,error,asset:asset?{sourceId:preparedSourceId,sourceTitle:asset.source?path.basename(asset.source):preparedSourceId,sha256:asset.sha256,size:asset.size,seconds:asset.seconds,audit:asset.audit}:undefined,lastResult,publication:grant?{bytes:grant.bytes,maxBytes:grant.maxBytes,playbackDeadline:grant.firstGet===undefined?undefined:grant.firstGet+grant.durationMs,reconnectDeadline:grant.lastClose===undefined?undefined:grant.lastClose+COLOR_SESSION_LIMITS.reconnectGapMs,lastRequest:grant.lastRequest,expires:grant.expires,peer:grant.peer.title,gets:grant.gets,heads:grant.heads,active:!!grant.active}:undefined,peers:await d.peers(),risk:'過去にDBRが操作不能となり電源再投入が必要でした。色変換・30秒制限は安全を保証しません。異常時は試験を中止し、再試行しないでください。'};}
  let mutation=Promise.resolve();
  async function change(input:any){
   tick();assert.equal(input?.revision,revision,'State changed; refresh');
@@ -51,7 +52,7 @@ export function createDbrColorTrial(d:Dependencies){
   assert.equal(input.sourceId,preparedSourceId,'Selected source differs from prepared asset; prepare again');
   const selected=(await d.peers()).filter(p=>p.id===input.peerId&&p.eligible);assert.equal(selected.length,1,'Select a current unambiguous MPEG-2 receiver');const peer=selected[0],binding=await d.verifyPeer(peer.id);
   await (d.verifyAsset??verifyColorAsset)(asset);assert.ok(!d.busy(),'Playback started during validation');
-  grant={token:randomBytes(24).toString('hex'),peer,binding,expires:now()+(d.ttlMs??300000),gets:0,heads:0};changed('PUBLISHED',{expires:grant.expires,peerId:peer.id,asset:asset.sha256});return status();
+  grant={token:randomBytes(24).toString('hex'),peer,binding,expires:now()+(d.ttlMs??300000),gets:0,heads:0,bytes:0,maxBytes:asset.wireBytes*COLOR_SESSION_LIMITS.captureCopies,durationMs:asset.seconds*1000*COLOR_SESSION_LIMITS.captureCopies};changed('PUBLISHED',{expires:grant.expires,peerId:peer.id,asset:asset.sha256});return status();
  }
  async function authorized(remote:string){tick();const g=grant;if(!g)return;try{assert.equal(await d.verifyPeer(g.peer.id,remote),g.binding);tick();if(grant===g)return g;}catch{if(remote.replace(/^::ffff:/,'')===g.peer.remote.replace(/^::ffff:/,''))revoke('binding-changed');}}
  return {
@@ -66,24 +67,33 @@ export function createDbrColorTrial(d:Dependencies){
    return {didl:wrap(xml),numberReturned:xml?1:0,total:match?1:0,updateId:revision};
   },
   async media(req:IncomingMessage,res:ServerResponse,token:string,remote:string){
-   const g=(d.requestAllowed??colorMediaRequestMatches)(req.headers)?await authorized(remote):undefined;if(!g||g.token!==token||!asset){res.writeHead(404);res.end();return;}
+   const arrival=now(),g=(d.requestAllowed??colorMediaRequestMatches)(req.headers)?await authorized(remote):undefined;
+   if(!g||g.token!==token||!asset){res.writeHead(404);res.end();return;}
+   const request={method:req.method,timeSeek:String(req.headers['timeseekrange.dlna.org']??'').slice(0,160),range:String(req.headers.range??'').slice(0,160),positionPolicy:'unchanged fixed capture from NPT0; no receiver-position inference',requestedStart:0};
+   g.lastRequest=request;d.trace('MEDIA_REQUEST',{...request,attempts:g.gets,bytes:g.bytes});
    if(!['GET','HEAD'].includes(req.method??'')){res.writeHead(405);res.end();return;}
-   // Start-only fixed capture. Invalid seeks cannot consume an approval or bypass admission.
-   if(req.headers.range){res.writeHead(406);res.end();return;}
-   if(req.headers['timeseekrange.dlna.org']!==undefined)try{const range=parseTimeSeek(String(req.headers['timeseekrange.dlna.org']),asset.seconds);assert.ok(range.start===0&&range.end===asset.seconds,'Only beginning-to-end request allowed');}catch{res.writeHead(406);res.end();return;}
-   if(req.method==='HEAD'){if(++g.heads>16){revoke('head-limit');res.writeHead(429);res.end();return;}res.writeHead(200,{'Content-Type':'video/vnd.dlna.mpeg-tts','contentFeatures.dlna.org':FEATURES,'Cache-Control':'no-store','Accept-Ranges':'none','transferMode.dlna.org':'Streaming','TimeSeekRange.dlna.org':`npt=0.000000-${asset.seconds.toFixed(6)}/${asset.seconds.toFixed(6)}`});res.end();return;}
-   const first=g.firstGet??now();
-   if(g.gets>=4||(g.firstGet!==undefined&&(now()-first>8000||(g.lastClose!==undefined&&now()-g.lastClose>2000)))){revoke('reconnect-window-ended');res.writeHead(410);res.end();return;}
-   g.gets++;const attempt=g.gets;g.firstGet=first;g.active?.destroy();await g.delivery?.catch(()=>{});
+   if(req.headers.range){d.trace('POSITION_REJECTED',request);res.writeHead(406);res.end();return;}
+   if(req.headers['timeseekrange.dlna.org']!==undefined)try{const range=parseTimeSeek(String(req.headers['timeseekrange.dlna.org']),asset.seconds);assert.ok(range.start===0&&range.end===asset.seconds,'Only beginning-to-end request allowed');}catch{d.trace('POSITION_REJECTED',request);res.writeHead(406);res.end();return;}
+   if(req.method==='HEAD'){if(++g.heads>COLOR_SESSION_LIMITS.maxHeads){revoke('head-limit');res.writeHead(429);res.end();return;}res.writeHead(200,{'Content-Type':'video/vnd.dlna.mpeg-tts','contentFeatures.dlna.org':FEATURES,'Cache-Control':'no-store','Accept-Ranges':'none','transferMode.dlna.org':'Streaming','TimeSeekRange.dlna.org':`npt=0.000000-${asset.seconds.toFixed(6)}/${asset.seconds.toFixed(6)}`});res.end();return;}
+   if(g.gets>=COLOR_SESSION_LIMITS.maxGets){revoke('get-limit');res.writeHead(410);res.end();return;}
+   if(g.bytes>=g.maxBytes){revoke('byte-limit');res.writeHead(410);res.end();return;}
+   if(g.lastClose!==undefined&&arrival-g.lastClose>COLOR_SESSION_LIMITS.reconnectGapMs){revoke('reconnect-gap-ended');res.writeHead(410);res.end();return;}
+   g.gets++;const attempt=g.gets;g.firstGet??=arrival;
+   // Reserve the replacement before destroying the previous response. Its cleanup
+   // must not revoke the new request; body producers never overlap.
+   g.pending?.destroy();g.pending=res;g.pendingAttempt=attempt;g.active?.destroy();await g.delivery?.catch(()=>{});
    try{
-    await (d.verifyAsset??verifyColorAsset)(asset);assert.equal(await d.verifyPeer(g.peer.id,remote),g.binding);tick();assert.equal(grant,g,'Publication expired or cancelled');if(attempt!==g.gets){res.writeHead(409);res.end();return;}
-    g.active=res;changed('GET_START',{attempt:g.gets,asset:asset.sha256});
-    const currentAsset=asset;g.delivery=(async()=>{
-     try{await(d.deliver??deliverCapturedMpeg2)(req,res,currentAsset.file,currentAsset.seconds,currentAsset.wireBytes,FEATURES,(event,detail)=>d.trace(event,detail));if(res.writableEnded)revoke('completed');}
-     catch(e){d.trace('DELIVERY_END',{error:String(e),clientClosed:res.destroyed});if(!res.destroyed)revoke('delivery-error');}
-     finally{if(g.active===res)g.active=undefined;g.lastClose=now();if(grant===g&&now()-first>8000)revoke('playback-ended');}
+    await (d.verifyAsset??verifyColorAsset)(asset);assert.equal(await d.verifyPeer(g.peer.id,remote),g.binding);tick();assert.equal(grant,g,'Publication expired or cancelled');if(attempt!==g.gets||res.destroyed){if(!res.destroyed){res.writeHead(409);res.end();}return;}
+    g.active=res;g.lastClose=undefined;g.pending=undefined;g.pendingAttempt=undefined;
+    res.once('close',()=>{if(grant===g&&g.active===res&&!res.writableEnded){g.lastClose=now();d.trace('RECONNECT_WAIT',{attempt,deadline:g.lastClose+COLOR_SESSION_LIMITS.reconnectGapMs,bytes:g.bytes});}});
+    changed('GET_START',{attempt,asset:asset.sha256,request,bytes:g.bytes,maxBytes:g.maxBytes});
+    const currentAsset=asset,bytesAtStart=g.bytes;g.delivery=(async()=>{
+     try{await(d.deliver??deliverCapturedMpeg2)(req,res,currentAsset.file,currentAsset.seconds,currentAsset.wireBytes,FEATURES,(event,detail)=>d.trace(event,{attempt,detail}),{beforeWrite(bytes){tick();assert.equal(grant,g,'Trial permission ended');if(g.bytes+bytes>g.maxBytes){revoke('byte-limit');throw Error('Trial aggregate body limit');}g.bytes+=bytes;}});if(res.writableEnded)revoke('completed');}
+     catch(e){d.trace('DELIVERY_END',{attempt,error:String(e),clientClosed:res.destroyed});if(!res.destroyed)revoke('delivery-error');}
+     finally{if(g.active===res){g.active=undefined;if(grant===g&&!res.writableEnded)g.lastClose??=now();}d.trace('TRANSFER_RESULT',{attempt,bytes:g.bytes-bytesAtStart,totalBytes:g.bytes,completed:res.writableEnded,request});}
     })();await g.delivery;
-   }catch(e){revoke('validation-failed');if(!res.headersSent){res.writeHead(409);res.end();}else res.destroy();d.trace('VALIDATION_FAILED',{error:String(e)});}
+   }catch(e){if(grant===g&&attempt===g.gets)revoke('validation-failed');if(!res.headersSent&&!res.destroyed){res.writeHead(409);res.end();}else res.destroy();d.trace('VALIDATION_FAILED',{attempt,error:String(e)});}
+   finally{if(g.pendingAttempt===attempt){g.pending=undefined;g.pendingAttempt=undefined;if(grant===g&&!g.active)g.lastClose??=now();}}
   },
   async close(){clearInterval(timer);const delivery=grant?.delivery;revoke('shutdown');controller?.abort();await job;await delivery?.catch(()=>{});},
  };
