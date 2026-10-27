@@ -1,4 +1,5 @@
 import test from 'node:test';
+import {request as httpRequest} from 'node:http';
 import assert from 'node:assert/strict';
 import {createServer,type IncomingMessage,type ServerResponse} from 'node:http';
 import {once} from 'node:events';
@@ -41,3 +42,13 @@ test('Color conversion is real serialized pixels; source eligibility and success
 });
 
 test('Actual request implementation evidence required; Intel, generic browser, mixed headers refused',()=>{assert.equal(colorRequestMatches({'user-agent':'JLABSDOC/1.0 TOSHIBA_JP_BDR_V1'}),true);for(const ua of ['Mozilla/5.0','Intel_SDK_for_UPnP_devices/1.0','JLABSDOC/1.0 TOSHIBA_JP_BDR_V1 Intel_SDK_for_UPnP_devices/1.0'])assert.equal(colorRequestMatches({'user-agent':ua}),false);});
+
+test('Observed recorder start request: absent UA and npt=0.0- work only for the bound temporary item',async()=>{
+ const f=fixture({requestAllowed:undefined,deliver:async(_req:IncomingMessage,res:ServerResponse)=>{res.writeHead(200);res.end('fixed capture');}});await ready(f.t);
+ await f.t.configure({action:'publish',revision:f.t.revision(),sourceId,peerId:peer.id,riskAcknowledged:true});
+ const page=await f.t.browse({objectId:COLOR_ROOT,start:0,count:200,metadata:false},peer.remote,'http://localhost',{'user-agent':'JLABSDOC/1.0 TOSHIBA_JP_BDR_V1'}),token=/media\/([a-f0-9]{48})/.exec(page!.didl)![1];
+ const server=createServer((req,res)=>void f.t.media(req,res,req.url!.slice(1),req.headers['x-foreign']?'other':peer.remote));server.listen(0,'127.0.0.1');await once(server,'listening');const url='http://127.0.0.1:'+(server.address() as any).port+'/'+token;
+ const request=(method:string,headers:Record<string,string>)=>new Promise<{status:number;headers:any;body:string}>((resolve,reject)=>{const r=httpRequest(url,{method,headers},res=>{let body='';res.on('data',b=>body+=b);res.on('end',()=>resolve({status:res.statusCode!,headers:res.headers,body}));});r.on('error',reject);r.end();});
+ const start={'transfermode.dlna.org':'Streaming','timeseekrange.dlna.org':'npt=0.0-'};
+ try{assert.equal((await request('GET',{...start,'x-foreign':'1'})).status,404);assert.equal((await request('GET',{...start,'user-agent':'Mozilla/5.0'})).status,404);for(const range of ['npt=12-','npt=0-5','invalid'])assert.equal((await request('GET',{...start,'timeseekrange.dlna.org':range})).status,406);const head=await request('HEAD',start);assert.equal(head.status,200);assert.match(head.headers['timeseekrange.dlna.org'],/^npt=0/);assert.equal((await request('GET',start)).body,'fixed capture');assert.equal((await request('GET',start)).status,404);}finally{await f.t.close();server.closeAllConnections();await new Promise<void>(r=>server.close(()=>r()));}
+});

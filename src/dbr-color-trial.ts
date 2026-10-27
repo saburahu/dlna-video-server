@@ -1,3 +1,4 @@
+import {parseTimeSeek} from './time-seek.js';
 import path from 'node:path';
 import assert from 'node:assert/strict';
 import {randomBytes} from 'node:crypto';
@@ -13,6 +14,9 @@ export const COLOR_ROOT='dbr-color-trial';
 const FEATURES=MPEG2_JIT_FEATURES.replace('DLNA.ORG_OP=10','DLNA.ORG_OP=00');
 export const colorRequestMatches=(headers:Record<string,unknown>,xml='')=>{const f=[...new Set(requestFamilyFeatures(headers,xml).map(v=>v.family))];return f.length===1&&f[0]==='dixim-service-layout';};
 export const COLOR_PROTOCOL=`http-get:*:video/vnd.dlna.mpeg-tts:${FEATURES}`;
+// A corroborated receiver may omit UA on media requests. Missing UA is not
+// conflicting evidence; authorization below still requires the token and fresh endpoint.
+export const colorMediaRequestMatches=(headers:Record<string,unknown>)=>colorRequestMatches(headers)||(!String(headers['user-agent']??'').trim()&&requestFamilyFeatures(headers).length===0);
 const TITLE='【危険性未確認・一時試験】DBR BT.709 冒頭30秒';
 const wrap=(s:string)=>`<DIDL-Lite xmlns="urn:schemas-upnp-org:metadata-1-0/DIDL-Lite/" xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:upnp="urn:schemas-upnp-org:metadata-1-0/upnp/">${s}</DIDL-Lite>`;
 const container=()=>`<container id="${COLOR_ROOT}" parentID="0" restricted="1" childCount="1"><dc:title>${TITLE}</dc:title><upnp:class>object.container</upnp:class></container>`;
@@ -62,11 +66,12 @@ export function createDbrColorTrial(d:Dependencies){
    return {didl:wrap(xml),numberReturned:xml?1:0,total:match?1:0,updateId:revision};
   },
   async media(req:IncomingMessage,res:ServerResponse,token:string,remote:string){
-   const g=(d.requestAllowed??colorRequestMatches)(req.headers)?await authorized(remote):undefined;if(!g||g.token!==token||!asset){res.writeHead(404);res.end();return;}
+   const g=(d.requestAllowed??colorMediaRequestMatches)(req.headers)?await authorized(remote):undefined;if(!g||g.token!==token||!asset){res.writeHead(404);res.end();return;}
    if(!['GET','HEAD'].includes(req.method??'')){res.writeHead(405);res.end();return;}
    // Start-only fixed capture. Invalid seeks cannot consume an approval or bypass admission.
-   if(req.headers.range||req.headers['timeseekrange.dlna.org']){res.writeHead(406);res.end();return;}
-   if(req.method==='HEAD'){if(++g.heads>16){revoke('head-limit');res.writeHead(429);res.end();return;}res.writeHead(200,{'Content-Type':'video/vnd.dlna.mpeg-tts','contentFeatures.dlna.org':FEATURES,'Cache-Control':'no-store','Accept-Ranges':'none'});res.end();return;}
+   if(req.headers.range){res.writeHead(406);res.end();return;}
+   if(req.headers['timeseekrange.dlna.org']!==undefined)try{const range=parseTimeSeek(String(req.headers['timeseekrange.dlna.org']),asset.seconds);assert.ok(range.start===0&&range.end===asset.seconds,'Only beginning-to-end request allowed');}catch{res.writeHead(406);res.end();return;}
+   if(req.method==='HEAD'){if(++g.heads>16){revoke('head-limit');res.writeHead(429);res.end();return;}res.writeHead(200,{'Content-Type':'video/vnd.dlna.mpeg-tts','contentFeatures.dlna.org':FEATURES,'Cache-Control':'no-store','Accept-Ranges':'none','transferMode.dlna.org':'Streaming','TimeSeekRange.dlna.org':`npt=0.000000-${asset.seconds.toFixed(6)}/${asset.seconds.toFixed(6)}`});res.end();return;}
    const first=g.firstGet??now();
    if(g.gets>=4||(g.firstGet!==undefined&&(now()-first>8000||(g.lastClose!==undefined&&now()-g.lastClose>2000)))){revoke('reconnect-window-ended');res.writeHead(410);res.end();return;}
    g.gets++;const attempt=g.gets;g.firstGet=first;g.active?.destroy();await g.delivery?.catch(()=>{});
