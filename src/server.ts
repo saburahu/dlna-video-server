@@ -446,6 +446,14 @@ async function handler(req: IncomingMessage, res: ServerResponse) {
     observeHttpTransfer(req,res,(event,detail)=>log('HTTP_TRANSFER',event,detail,req));
   try {
     if (url.pathname.startsWith("/api/")) {
+      if(url.pathname==='/api/clients/mpeg2-trials'){
+        if(req.method==='GET')return sendJson(res,200,await experimentalCatalog.mpeg2TrialStatus());
+        if(req.method==='POST'){
+          if(req.headers.origin&&req.headers.origin!==`http://${req.headers.host}`)return sendJson(res,403,{error:'Same management origin required'});
+          try{return sendJson(res,200,await experimentalCatalog.configureMpeg2Trial(JSON.parse(await body(req))));}catch(e){return sendJson(res,409,{error:String(e)});}
+        }
+        return sendJson(res,405,{error:'GET/POST only'});
+      }
       if(url.pathname==='/api/clients/compatibility'){
         if(req.method==='GET')return sendJson(res,200,await experimentalCatalog.compatibilityStatus());
         if(req.method==='POST'){

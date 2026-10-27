@@ -209,6 +209,8 @@ export function createExperimentalCatalog(directory: string, trace: (message: st
     observeClient:(req:IncomingMessage,xml='')=>jit.observeClient(req,xml),
     automaticIdle:()=>jit.automaticIdle(),
     automaticStatus:()=>jit.automaticStatus(),
+    mpeg2TrialStatus:()=>jit.mpeg2TrialStatus(),
+    configureMpeg2Trial:(input:unknown)=>jit.configureMpeg2Trial(input),
     compatibilityStatus:()=>jit.compatibilityStatus(),
     configureCompatibility:(input:unknown)=>jit.configureCompatibility(input),
     jitStatus:()=>jit.status(),
