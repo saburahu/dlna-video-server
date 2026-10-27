@@ -451,6 +451,7 @@ async function handler(req: IncomingMessage, res: ServerResponse) {
     if(url.pathname.startsWith('/dbr-color-trial/media/'))return await colorTrial.media(req,res,url.pathname.slice('/dbr-color-trial/media/'.length),await experimentalCatalog.client(req));
     if (url.pathname.startsWith("/api/")) {
       if(url.pathname==='/api/dbr-color-trial'){
+        const denied=managementAccess(req,boundPort||settings.port);if(denied)return sendJson(res,403,{error:denied});
         if(req.method==='GET')return sendJson(res,200,url.searchParams.has('q')?{sources:await experimentalCatalog.colorTrialSources(url.searchParams.get('q')!.slice(0,200))}:await colorTrial.status());
         if(req.method==='POST'){
           if(req.headers['x-pt3-management']!=='1'||!String(req.headers['content-type']).startsWith('application/json')||(req.headers.origin&&req.headers.origin!==`http://${req.headers.host}`)||req.headers['sec-fetch-site']==='cross-site')return sendJson(res,403,{error:'Same-origin management operation required'});

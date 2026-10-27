@@ -1,3 +1,4 @@
+import path from 'node:path';
 import assert from 'node:assert/strict';
 import {randomBytes} from 'node:crypto';
 import type {IncomingMessage,ServerResponse} from 'node:http';
@@ -25,24 +26,25 @@ interface Dependencies {
 }
 /** Ephemeral, receiver-bound playback session. Never writes normal admission or catalog. */
 export function createDbrColorTrial(d:Dependencies){
- const now=d.now??Date.now;let revision=0,phase='idle',progress:any,asset:ColorAsset|undefined,error:string|undefined,controller:AbortController|undefined,job:Promise<void>|undefined;
+ const now=d.now??Date.now;let preparedSourceId='',revision=0,phase='idle',progress:any,asset:ColorAsset|undefined,error:string|undefined,controller:AbortController|undefined,job:Promise<void>|undefined;
  type Grant={token:string;peer:Peer;binding:string;expires:number;gets:number;heads:number;firstGet?:number;lastClose?:number;active?:ServerResponse;delivery?:Promise<void>};let grant:Grant|undefined;
  const changed=(event:string,detail:unknown={})=>{revision++;d.trace(event,{revision,detail});};
  function revoke(reason:string){const previous=grant;grant=undefined;if(previous?.active&&!previous.active.writableEnded)previous.active.destroy();if(previous)changed('REVOKED',{reason,gets:previous.gets,heads:previous.heads});}
  function tick(){if(grant&&now()>=grant.expires)revoke('expired');}
  const timer=setInterval(tick,250);timer.unref();
- async function status(){tick();return {revision,phase,progress,error,asset:asset?{sha256:asset.sha256,size:asset.size,seconds:asset.seconds,audit:asset.audit}:undefined,publication:grant?{expires:grant.expires,peer:grant.peer.title,gets:grant.gets,heads:grant.heads,active:!!grant.active}:undefined,peers:await d.peers(),risk:'過去にDBRが操作不能となり電源再投入が必要でした。色変換・30秒制限は安全を保証しません。異常時は試験を中止し、再試行しないでください。'};}
+ async function status(){tick();return {revision,phase,progress,error,asset:asset?{sourceId:preparedSourceId,sourceTitle:asset.source?path.basename(asset.source):preparedSourceId,sha256:asset.sha256,size:asset.size,seconds:asset.seconds,audit:asset.audit}:undefined,publication:grant?{expires:grant.expires,peer:grant.peer.title,gets:grant.gets,heads:grant.heads,active:!!grant.active}:undefined,peers:await d.peers(),risk:'過去にDBRが操作不能となり電源再投入が必要でした。色変換・30秒制限は安全を保証しません。異常時は試験を中止し、再試行しないでください。'};}
  let mutation=Promise.resolve();
  async function change(input:any){
   tick();assert.equal(input?.revision,revision,'State changed; refresh');
   if(input.action==='cancel'){revoke('operator');controller?.abort();await job;return status();}
   if(input.action==='prepare'){
    assert.ok(!job&&!grant&&!d.busy(),'Stop playback/preparation before preparing');assert.match(input.sourceId,/^experimental\/catalog-item\/[a-f0-9]{32}$/);
-   asset=undefined;error=undefined;phase='preparing';controller=new AbortController();const signal=controller.signal;changed('PREPARING');
+   preparedSourceId=input.sourceId;asset=undefined;error=undefined;phase='preparing';controller=new AbortController();const signal=controller.signal;changed('PREPARING');
    job=d.prepare(input.sourceId,signal,v=>{progress=v;}).then(a=>{signal.throwIfAborted();asset=a;phase='ready';changed('READY',{sha256:a.sha256,size:a.size});}).catch(e=>{asset=undefined;error=String(e);phase=signal.aborted?'cancelled':'failed';changed('PREPARATION_FAILED',{error});}).finally(()=>{job=undefined;controller=undefined;});
    return status();
   }
   assert.equal(input.action,'publish');assert.equal(input.riskAcknowledged,true,'Explicit freeze risk acknowledgement required');assert.ok(asset&&phase==='ready'&&!job&&!grant&&!d.busy(),'Audited ready asset and idle server required');
+  assert.equal(input.sourceId,preparedSourceId,'Selected source differs from prepared asset; prepare again');
   const selected=(await d.peers()).filter(p=>p.id===input.peerId&&p.eligible);assert.equal(selected.length,1,'Select a current unambiguous MPEG-2 receiver');const peer=selected[0],binding=await d.verifyPeer(peer.id);
   await (d.verifyAsset??verifyColorAsset)(asset);assert.ok(!d.busy(),'Playback started during validation');
   grant={token:randomBytes(24).toString('hex'),peer,binding,expires:now()+(d.ttlMs??300000),gets:0,heads:0};changed('PUBLISHED',{expires:grant.expires,peerId:peer.id,asset:asset.sha256});return status();
