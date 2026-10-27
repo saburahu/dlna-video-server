@@ -16,7 +16,8 @@ import {validateJitSegmentEnd} from './jit-segment.js';
 import {AutomaticCfrInputAudit} from './receiver-playback-profile.js';
 import {inspectMpeg2Startup} from './dbr-color-headers.js';
 
-export const COLOR_FILTER='colorspace=iall=smpte240m:irange=pc:all=bt709:range=tv:format=yuv420p:fast=0:dither=fsb';
+export {MPEG2_COLOR_FILTER as COLOR_FILTER} from './mpeg2-color-normalization.js';
+import {MPEG2_COLOR_FILTER as COLOR_FILTER} from './mpeg2-color-normalization.js';
 export const COLOR_RECIPE='dbr-isolated-color-30s-v1';
 export const COLOR_REQUIRED_BYTES=1024**3;
 export const COLOR_ASSET_BUDGET=512*1024**2;

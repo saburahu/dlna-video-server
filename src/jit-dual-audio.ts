@@ -55,7 +55,7 @@ export function selectDualAudio(permissions:readonly DualAudioPermission[]|undef
   }
  }
  if(audio.length!==2||videos.length!==1||new Set(probe.streams.map((s:any)=>s.index)).size!==probe.streams.length||!probe.streams.every((s:any)=>Number.isSafeInteger(s.index)&&s.index>=0))return no('dual-audio-stream-layout-unverified');
- const pair=containerAacPair(probe);
+ const pair=containerAacPair(probe,mpeg2);
  if(pair){
   const v=videos[0],sourceSignature=snapshotHash(JSON.stringify({scope:pair.version,format:{name:probe.format.format_name,duration:Number(probe.format.duration)},video:{index:v.index,codec:v.codec_name,profile:v.profile,pixels:v.pix_fmt,width:v.width,height:v.height,field:v.field_order,rate:v.avg_frame_rate,frameSequence:probe.inputPictureStructure},audio:audio.map((s:any)=>({index:s.index,codec:s.codec_name,profile:s.profile,rate:Number(s.sample_rate),channels:s.channels,layout:s.channel_layout,timebase:s.time_base,start:Number(s.start_time)})),endpoints:pair.endpoints}));
   const plan:DualAudioPlan={version:pair.version,targetProfile,mpeg2,sourceSignature,audioIndices:audio.map((s:any)=>s.index),audioPids:mpeg2?[321,322]:[257,258]};

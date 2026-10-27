@@ -1,7 +1,9 @@
+import {mpeg2ColorInput} from './mpeg2-color-normalization.js';
 export function mpeg2UnsafeInput(p:any){const v=p?.streams?.find((s:any)=>s.codec_type==='video');return v?.pix_fmt==='yuvj420p'||v?.color_range==='pc'||[v?.color_space,v?.color_transfer,v?.color_primaries].includes('smpte240m');}
 /** Bounded input contract for the existing MPEG-2/AAC/dedicated-PCR recipe.
  * Metadata eligibility is not a receiver success or full-file decode certificate. */
 export function mpeg2InputEligibility(p:any){
+ if(mpeg2ColorInput(p))return {eligible:true,legacy:false,reason:'bounded-mpeg2-bt709-pixel-normalization'};
  const no=(reason:string)=>({eligible:false,reason,legacy:false});
  const streams=p?.streams??[],video=streams.filter((s:any)=>s.codec_type==='video'),audio=streams.filter((s:any)=>s.codec_type==='audio'),v=video[0],formats=String(p?.format?.format_name??'').split(','),duration=Number(p?.format?.duration);
  if(v?.pix_fmt==='yuvj420p'||v?.color_range==='pc'||[v?.color_space,v?.color_transfer,v?.color_primaries].includes('smpte240m'))return no('mpeg2-unsafe-full-range-or-240m-input');
@@ -18,3 +20,7 @@ export function mpeg2InputEligibility(p:any){
  if(sd&&scan&&cadence&&(wmv||avi)){if(!audio.every((a:any)=>Math.abs(Number(a.start_time)-start)<=.003&&(a.duration===undefined&&avi||Number.isFinite(Number(a.duration))&&Math.abs(Number(a.duration)-duration)<=.064)))return no('mpeg2-legacy-stream-clock-inconsistent');return {eligible:true,legacy:true,reason:'bounded-mpeg2-legacy-input-runtime-audited'};}
  return no('mpeg2-container-codec-scan-combination-unverified');
 }
+
+/** Raw unsafe predicate stays conservative; this gate admits only the exact
+ * normalized technical class, never arbitrary full-range/240M inputs. */
+export const mpeg2UnprocessableInput=(p:any)=>mpeg2UnsafeInput(p)&&!mpeg2ColorInput(p);

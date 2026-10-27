@@ -1,5 +1,5 @@
 import {mpeg2TrialState} from './receiver-mpeg2-trial.js';
-import {mpeg2InputEligibility,mpeg2UnsafeInput} from './mpeg2-input-scope.js';
+import {mpeg2InputEligibility,mpeg2UnprocessableInput} from './mpeg2-input-scope.js';
 import {isMpeg2JitTarget} from './mpeg2-jit-target.js';
 import {matchingJitTrial,trialProfile} from './jit-client-trial.js';
 import {decidePlayback} from './playback-decision.js';
@@ -29,7 +29,7 @@ export function catalogJitCandidate(entry:ExperimentalEntry,p:ExperimentalJitPol
     (!legacy&&(!source.video.profile||!Number.isFinite(source.video.level)))||!Number.isSafeInteger(source.video.codedWidth)||!Number.isSafeInteger(source.video.codedHeight)||source.video.codedWidth!<=0||source.video.codedHeight!<=0)return;
   const profile=p.policy.profiles.find(v=>v.id===p.targetProfile);if(!profile)return;
   const mpeg2Trial=mpeg2TrialState(p.mpeg2ReceiverTrials,cap,p.targetProfile,!!p._admission?.binding,process.env.PT3_MPEG2_CANDIDATE_AUTO==='1'&&p._admission?.route==='automatic');
-  if(isMpeg2JitTarget(profile)&&(mpeg2UnsafeInput(probe)||(mpeg2Trial.wmaProInput||mpeg2Trial.dualAudio)&&!mpeg2InputEligibility(probe).eligible))return;
+  if(isMpeg2JitTarget(profile)&&(mpeg2UnprocessableInput(probe)||(mpeg2Trial.wmaProInput||mpeg2Trial.dualAudio)&&!mpeg2InputEligibility(probe).eligible))return;
   const observations=p.policy.observations.filter(o=>o.deviceId===cap.deviceId&&o.sinkHash===cap.sinkHash).map(o=>o.observation);
   const evidence=observations.find(o=>o.profileId===profile.id&&o.outcome==='success'&&o.framing===profile.transport.value.framing)?.evidence;
   const trial=matchingJitTrial(p.clientTrials,cap,profile);
