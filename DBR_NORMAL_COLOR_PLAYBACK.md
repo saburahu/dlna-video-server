@@ -47,8 +47,10 @@ MP4内の単一AVC Main/High <=4.1、8bit 4:2:0、progressive、偶数サイズ�
 
 開始時刻のnull/空値、矛盾するbit depth、未検証のHDR/表示変換side-dataは正規化対象にしない。HDRタグ/metadataを持つ入力は通常MPEG-2への迂回も拒否する。色変換前のshowinfoで全復号フレームの画素形式・寸法・progressive・range/行列/原色/伝達特性を検査し、途中でprobeと異なる値が出た場合も配信を停止する。色変換フィルターとencoder条件は不変。showinfo移動前後の短区間は映像ES・復号画素hash一致を確認したが、未知の受信機での成功を意味しない。
 
-compact color metadataはversion 2へ更新し、side_data_listも保持する。旧H.264 MP4のMPEG-2 resourceは補完成功まで出さず、失敗時も古い色情報へ戻して公開しない。既存の直列ヘッダーキューを使い、Browseでsourceを解析しない。AVC側の判定は変更しない。解析を無効化した環境ではMPEG-2側の対象項目が補完待ちのままになる。補完成功ごとに既存UpdateIDを更新するため、受信機の一覧再取得が必要な場合がある。
+compact color metadataはversion 2へ更新し、side_data_listも保持する。旧H.264 MP4/HEVC MKVのMPEG-2 resourceは補完成功まで出さず、失敗時も古い色情報へ戻して公開しない。既存の直列ヘッダーキューを使い、Browseでsourceを解析しない。AVC側の判定は変更しない。解析を無効化した環境ではMPEG-2側の対象項目が補完待ちのままになる。補完成功ごとに既存UpdateIDを更新するため、受信機の一覧再取得が必要な場合がある。
 
 Private/Publicとも候補ビルダーの --mpeg2-candidate-auto で同じmanifest機能フラグを選べる。省略時は拡張既定OFF。公開ペア検査は機能フラグ不一致も拒否する。PublicのFFmpeg/ffprobeは外部指定方式のまま。これは公開承認ではなく、候補構成の整合条件である。
 
 通常MPEG-2の途中でdecoded pixel format/full-range/240M/HDRへ変わる合成入力も追加監査した。先頭の安全なheaderから受理されても、途中変化を新たな自動色変換へ広げず、継続監査で配信停止する。通常MPEG-2でも非構造化periodic statsを停止し、音声と映像のav_log body混在を分離する。実際のencoder引数をログへ残し、内部監査失敗を利用者キャンセルと誤記しない。出力encoder/GOP/VBV/PCR/音声レシピおよびAVC経路は変更しない。
+
+旧HEVC MKVも旧MP4と同じ色情報補完・公開抑止の対象とした。拡張された通常MPEG-2の適格modern入力にも、既存の復号フレーム順序/単調PTS/2秒未満gap/復号失敗監査を接続する。accurate input Seekで時刻が相対化されるAAC/MP3と、明示copytsを使うWMA prerollの監査起点を分離した。encoder設定/生成バイトのための時計補正を追加するものではない。

@@ -1,5 +1,5 @@
 import {mpeg2ColorInput} from './mpeg2-color-normalization.js';
-const incompleteCatalogColor=(p:any)=>(p?.colorMetadataVersion!==undefined&&p.colorMetadataVersion<2&&String(p.format?.format_name??'').split(',').includes('mp4')&&p.streams?.some((s:any)=>s.codec_type==='video'&&s.codec_name==='h264'));
+const incompleteCatalogColor=(p:any)=>(p?.colorMetadataVersion!==undefined&&p.colorMetadataVersion<2&&p.streams?.some((s:any)=>s.codec_type==='video'&&(s.codec_name==='h264'&&String(p.format?.format_name??'').split(',').includes('mp4')||s.codec_name==='hevc'&&String(p.format?.format_name??'').split(',').includes('matroska'))));
 const unsupportedHdr=(p:any)=>p?.streams?.filter((s:any)=>s.codec_type==='video').some((v:any)=>['smpte2084','arib-std-b67'].includes(v.color_transfer)||v.color_primaries==='bt2020'||['bt2020nc','bt2020c'].includes(v.color_space)||v.side_data_list?.some((d:any)=>/mastering display|content light|dovi|hdr10/i.test(String(d.side_data_type))));
 export function mpeg2UnsafeInput(p:any){const v=p?.streams?.find((s:any)=>s.codec_type==='video');return v?.pix_fmt==='yuvj420p'||v?.color_range==='pc'||[v?.color_space,v?.color_transfer,v?.color_primaries].includes('smpte240m');}
 /** Bounded input contract for the existing MPEG-2/AAC/dedicated-PCR recipe.

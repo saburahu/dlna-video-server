@@ -36,3 +36,6 @@ export function mpeg2JitArguments(source:string,end:number,transforms:{deinterla
  '-af',(preroll?`atrim=start=${start},asetpts=PTS-${seek!.firstVideoTicks}/(90000*TB),`:'')+`aresample=48000${transforms.reconcileAudioTimeline?':async=1':''},aformat=channel_layouts=stereo,asettb=1/48000,ashowinfo,asetpts=STARTPTS+N`,'-c:a','aac','-profile:a','mpeg2_aac_low','-aac_pns','0','-ar','48000','-ac','2','-b:a','192k',
  '-mpegts_service_id','141','-mpegts_pmt_start_pid','257','-streamid','0:320','-streamid','1:321','-mpegts_flags','+resend_headers','-pat_period','0.1','-pcr_period','50','-muxrate','12500000','-muxdelay','0.7','-avoid_negative_ts','disabled','-output_ts_offset',String(start+3003/90000),'-flush_packets','1','-f','mpegts','pipe:1'];
 }
+
+/** showinfo is before output PTS restoration; accurate input -ss resets it unless -copyts is used. */
+export function mpeg2AuditPresentationStart(args:readonly string[],seek?:JitSeekPlan){return args.includes('-copyts')?(seek?.firstVideoTicks??0)/90000:0;}
