@@ -1,14 +1,10 @@
-> 最新の試験設定は[受信機別の独立許可](docs/MPEG2-SCOPED-TRIALS.md)を使用します。旧mpeg2InputTrialは退役し、許可には使いません。以下の一括フラグに関する記述は旧候補の記録です。
-
-> v0.4.3開発候補。追加MPEG-2入力は既定無効の実機検証候補です。[変更と制限](packaging/release-notes/0.4.3.md)。
-
-> v0.4.2：[1000件制限向け仮想フォルダー](VIRTUAL_FOLDERS.md)。大規模ライブラリのBrowseを改善します。
-
 # DLNA Video Server
 
-[Private／Public共通 v0.4.2の変更](packaging/release-notes/0.4.2.md)。
+> v0.4.3：DBR向け色正規化・入力互換性・カタログ補完・JIT監査を改善。WMV Seek復帰などの既知制限があります。
 
-**v0.4.2**。限定2音声の条件は[複数音声](docs/MULTI-AUDIO.md)、未解決の音声終端・REGZAレコーダーの復帰不能事象は[既知の問題](docs/KNOWN-ISSUES.md)を確認してください。
+[Private／Public共通 v0.4.3の変更・確認範囲・既知制限](packaging/release-notes/0.4.3.md)。
+
+**v0.4.3**。限定2音声の条件は[複数音声](docs/MULTI-AUDIO.md)、未解決の音声終端・REGZAレコーダーの復帰不能事象は[既知の問題](docs/KNOWN-ISSUES.md)を確認してください。
 
 Windows PC上の録画・動画を家庭内LANへ配信する、**REGZAテレビ・レコーダー向けの互換性を重視したDLNAサーバー**です。VLC向けにはDirect Playも提供します。本ソフトウェアは独立したオープンソースプロジェクトであり、REGZAのメーカーによる公式製品・公式ソフトウェアではありません。**サーバー自体に録画・チューナー制御機能はありません。** 適法に利用できる平文メディアを扱い、DRM・DTCP-IP・放送の暗号化を解除する機能は提供しません。
 
