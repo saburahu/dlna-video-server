@@ -1,8 +1,12 @@
 import {mpeg2ColorInput} from './mpeg2-color-normalization.js';
+const incompleteCatalogColor=(p:any)=>(p?.colorMetadataVersion!==undefined&&p.colorMetadataVersion<2&&String(p.format?.format_name??'').split(',').includes('mp4')&&p.streams?.some((s:any)=>s.codec_type==='video'&&s.codec_name==='h264'));
+const unsupportedHdr=(p:any)=>p?.streams?.filter((s:any)=>s.codec_type==='video').some((v:any)=>['smpte2084','arib-std-b67'].includes(v.color_transfer)||v.color_primaries==='bt2020'||['bt2020nc','bt2020c'].includes(v.color_space)||v.side_data_list?.some((d:any)=>/mastering display|content light|dovi|hdr10/i.test(String(d.side_data_type))));
 export function mpeg2UnsafeInput(p:any){const v=p?.streams?.find((s:any)=>s.codec_type==='video');return v?.pix_fmt==='yuvj420p'||v?.color_range==='pc'||[v?.color_space,v?.color_transfer,v?.color_primaries].includes('smpte240m');}
 /** Bounded input contract for the existing MPEG-2/AAC/dedicated-PCR recipe.
  * Metadata eligibility is not a receiver success or full-file decode certificate. */
 export function mpeg2InputEligibility(p:any){
+ if(unsupportedHdr(p))return {eligible:false,legacy:false,reason:'mpeg2-hdr-conversion-unverified'};
+ if(incompleteCatalogColor(p))return {eligible:false,legacy:false,reason:'mpeg2-color-metadata-refresh-required'};
  if(mpeg2ColorInput(p))return {eligible:true,legacy:false,reason:'bounded-mpeg2-bt709-pixel-normalization'};
  const no=(reason:string)=>({eligible:false,reason,legacy:false});
  const streams=p?.streams??[],video=streams.filter((s:any)=>s.codec_type==='video'),audio=streams.filter((s:any)=>s.codec_type==='audio'),v=video[0],formats=String(p?.format?.format_name??'').split(','),duration=Number(p?.format?.duration);
@@ -23,4 +27,6 @@ export function mpeg2InputEligibility(p:any){
 
 /** Raw unsafe predicate stays conservative; this gate admits only the exact
  * normalized technical class, never arbitrary full-range/240M inputs. */
-export const mpeg2UnprocessableInput=(p:any)=>mpeg2UnsafeInput(p)&&!mpeg2ColorInput(p);
+/** Compact pre-upgrade catalogues did not preserve rejecting colour facts.
+ * Only the MPEG-2 caller uses this gate; full GET probes have no catalogue marker. */
+export const mpeg2UnprocessableInput=(p:any)=>unsupportedHdr(p)||incompleteCatalogColor(p)||mpeg2UnsafeInput(p)&&!mpeg2ColorInput(p);

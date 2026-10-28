@@ -42,3 +42,11 @@ MP4内の単一AVC Main/High <=4.1、8bit 4:2:0、progressive、偶数サイズ�
 ## 実機で残る差分
 
 通常一覧からの動的JIT・音声切替・約120秒Seek・Seek後の再切替はユーザー実機成功済み。今回のUI撤去で再生coreを変更しないため、同じ確認は依頼しない。全編自然EOFの実機終了と、未知の素材/他の機器の動作は確認済みとはしない。
+
+## v0.4.3監査追補
+
+開始時刻のnull/空値、矛盾するbit depth、未検証のHDR/表示変換side-dataは正規化対象にしない。HDRタグ/metadataを持つ入力は通常MPEG-2への迂回も拒否する。色変換前のshowinfoで全復号フレームの画素形式・寸法・progressive・range/行列/原色/伝達特性を検査し、途中でprobeと異なる値が出た場合も配信を停止する。色変換フィルターとencoder条件は不変。showinfo移動前後の短区間は映像ES・復号画素hash一致を確認したが、未知の受信機での成功を意味しない。
+
+compact color metadataはversion 2へ更新し、side_data_listも保持する。旧H.264 MP4のMPEG-2 resourceは補完成功まで出さず、失敗時も古い色情報へ戻して公開しない。既存の直列ヘッダーキューを使い、Browseでsourceを解析しない。AVC側の判定は変更しない。解析を無効化した環境ではMPEG-2側の対象項目が補完待ちのままになる。補完成功ごとに既存UpdateIDを更新するため、受信機の一覧再取得が必要な場合がある。
+
+Private/Publicとも候補ビルダーの --mpeg2-candidate-auto で同じmanifest機能フラグを選べる。省略時は拡張既定OFF。公開ペア検査は機能フラグ不一致も拒否する。PublicのFFmpeg/ffprobeは外部指定方式のまま。これは公開承認ではなく、候補構成の整合条件である。

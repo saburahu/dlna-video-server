@@ -13,7 +13,7 @@ export function mpeg2ColorInput(p:any){
  return a.every((s:any)=>s.codec_name==='aac'&&s.profile==='LC'&&s.channels===2&&s.channel_layout==='stereo'&&Number(s.sample_rate)===48000&&s.time_base==='1/48000'&&knownNumber(s.start_time)&&Math.abs(Number(s.start_time))<=.003&&Number.isFinite(Number(s.duration))&&Number(s.duration)>0&&Math.abs(Number(s.duration)-duration)<=.064);
 }
 export function normalizedMpeg2Arguments(original:readonly string[]){
- const args=[...original],i=args.indexOf('-vf');if(i<0)throw Error('MPEG-2 video filter missing');assert.ok(args[i+1].startsWith('showinfo=checksum=0,'),'Expected pre-CFR input observer');args[i+1]=args[i+1].replace('showinfo=checksum=0,','showinfo=checksum=0,'+MPEG2_COLOR_FILTER+',');args.splice(args.indexOf('-c:v'),0,'-color_primaries','bt709','-color_trc','bt709','-colorspace','bt709','-color_range','tv');return ['-filter_threads','1',...args];
+ const args=[...original],i=args.indexOf('-vf');if(i<0)throw Error('MPEG-2 video filter missing');assert.ok(args[i+1].startsWith('showinfo=checksum=0,'),'Expected pre-CFR input observer');args[i+1]=args[i+1].replace('showinfo=checksum=0,','showinfo=checksum=0,'+MPEG2_COLOR_FILTER+',');args.splice(args.indexOf('-c:v'),0,'-color_primaries','bt709','-color_trc','bt709','-colorspace','bt709','-color_range','tv');return ['-nostats','-filter_threads','1',...args];
 }
 
 /** Observe actual decoder output before the conversion can override its tags/format. */

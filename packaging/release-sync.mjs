@@ -13,12 +13,13 @@ export function assertReleasePair(privateCandidate,publicCandidate,{requirePubli
   if(requirePublicationReady)assert.equal(c.manifest.publicationReady,true,'Publication blocked: '+(c.manifest.publicationBlockers??[]).join('; '));
   return c.packageVersion;
  });assert.equal(versions[0],versions[1],'Private/Public product versions must match');
+ assert.deepEqual(privateCandidate.manifest.candidateFeatures??{},publicCandidate.manifest.candidateFeatures??{},'Private/Public runtime feature flags must match');
  const builds=entries.map(([edition,c])=>({edition,sourceCommit:c.manifest.sourceCommit,buildId:c.manifest.buildId}));
  if(requirePublicationReady||compatibilityEvidence)assertPlaybackCompatibility(compatibilityEvidence,builds);
  return {version:versions[0],versionsMatch:true,compatibilityVerified:!!compatibilityEvidence,publicationReady:entries.every(([,c])=>c.manifest.publicationReady===true),builds};
 }
 export async function commonCodeParity(privateRoot,publicRoot){
- const files=['catalog-jit-candidate.ts','experimental-jit.ts','wma-input-permission.ts','wma-input-scope.ts','dual-audio-permission-proposal.ts','prepare-dual-audio-receiver-proposal.ts','jit-server.ts','jit-stream.ts','jit-dual-audio.ts','jit-audio-clock.ts','jit-segment.ts','jit-seek.ts','receiver-cfr-trial.ts','receiver-wmv-cfr-trial.ts','receiver-h264-avi-cfr-trial.ts','ts-stability-audit.ts','core.ts','time-seek.ts'];
+ const files=["automatic-jit-client.ts","automatic-wmapro-input.ts","catalog-background.ts","client-family-discovery.ts","container-aac-pair.ts","dbr-color-headers.ts","device-description-scope.ts","mpeg2-color-normalization.ts","mpeg2-input-scope.ts","mpeg2-trial-settings.ts","receiver-compatibility-axes.ts","receiver-mpeg2-trial.ts","receiver-playback-profile.ts",'catalog-jit-candidate.ts','experimental-jit.ts','wma-input-permission.ts','wma-input-scope.ts','dual-audio-permission-proposal.ts','prepare-dual-audio-receiver-proposal.ts','jit-server.ts','jit-stream.ts','jit-dual-audio.ts','jit-audio-clock.ts','jit-segment.ts','jit-seek.ts','receiver-cfr-trial.ts','receiver-wmv-cfr-trial.ts','receiver-h264-avi-cfr-trial.ts','ts-stability-audit.ts','core.ts','time-seek.ts'];
  const normalize=s=>s.replaceAll('\r\n','\n').replaceAll('bind-c0004-artifact.js','file-fingerprint.js').replaceAll('verified-angel-normalized-artifact-v1','verified-sampleA-normalized-artifact-v1');
  for(const name of files){const [a,b]=await Promise.all([privateRoot,publicRoot].map(root=>fs.readFile(path.join(root,'src',name),'utf8')));assert.equal(normalize(a),normalize(b),'Unexpected common playback divergence: '+name);}
  return {compared:files.length,matched:true,normalizations:['line endings','historical fingerprint module name','historical policy schema alias'],intentionalDifferences:['Public localhost management and source containment','Public explicit external runtime override','Private development tools and non-runtime research tests']};

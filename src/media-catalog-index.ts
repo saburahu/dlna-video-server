@@ -166,5 +166,5 @@ export class MediaIndex {
 }
 export function indexedExperimentalEntry(r:CatalogRow):ExperimentalEntry {
  return {objectId:r.objectId,filename:r.filename,fingerprint:{path:r.path,size:r.size,mtimeMs:r.mtimeMs},
-  sourceState:r.metadata?'cached':'unanalysed',decisions:[],sourceStale:r.availability==='missing',lightweightProbe:r.metadata};
+  sourceState:r.metadata?'cached':'unanalysed',decisions:[],sourceStale:r.availability==='missing',lightweightProbe:r.metadata?{...(r.metadata as any),colorMetadataVersion:(r.metadata as any).colorMetadataVersion??0}:undefined};
 }

@@ -4,3 +4,5 @@ test('synchronized SemVer permits different source SHAs but preserves publicatio
 test('mismatched source, app, notes, manifest, runtime or individual defaults fail closed',()=>{
  for(const change of[{packageVersion:'0.4.2'},{appVersion:'0.4.0'},{notesVersion:'0.3.0'},{individualGrants:1},{bundledNode:false},{manifest:{...fixture('public').manifest,productVersion:'0.4.2'}},{manifest:{...fixture('public').manifest,sourceCommit:'c'.repeat(40)}}])assert.throws(()=>assertReleasePair(fixture('private'),{...fixture('public'),...change}));
 });
+
+test('same SemVer cannot hide different MPEG-2 package feature flags',()=>{const a=fixture('private'),b=fixture('public');a.manifest.candidateFeatures={mpeg2BoundExpansion:'automatic-v1'};assert.throws(()=>assertReleasePair(a,b),/feature flags/);b.manifest.candidateFeatures={mpeg2BoundExpansion:'automatic-v1'};assert.equal(assertReleasePair(a,b).versionsMatch,true);});
