@@ -34,3 +34,13 @@ export class Mpeg2ColorDecodedAudit {
  }
  finish(){assert.ok(this.frames>0&&this.frames===this.colors,'Incomplete decoded colour audit');}
 }
+
+/** Ordinary MPEG-2 must not silently inherit unsafe facts discovered after the header probe. */
+export class Mpeg2DecodedSafetyAudit {
+ frames=0;
+ push(line:string){
+  for(const record of line.split(/(?=\bn:\s*\d+\s+pts:)/)){if(!/^n:\s*\d+\s+pts:/.test(record)||! /\bs:\d+x\d+\b/.test(record))continue;assert.equal(/\bfmt:(\S+)/.exec(record)?.[1],'yuv420p','MPEG-2 decoded pixel format changed outside inspected scope');this.frames++;}
+  assert.ok(!/\bcolor_range:pc|\bcolor_(?:space|primaries|trc):(?:smpte240m|bt2020\w*|smpte2084|arib-std-b67)/.test(line),'MPEG-2 decoded colour changed outside ordinary SDR scope');
+ }
+ finish(){assert.ok(this.frames>0,'Missing ordinary MPEG-2 decoded frame audit');}
+}

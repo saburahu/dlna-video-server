@@ -1,5 +1,5 @@
 import test from 'node:test';import assert from 'node:assert/strict';
-import {mpeg2ColorInput,normalizedMpeg2Arguments,MPEG2_COLOR_FILTER,Mpeg2ColorDecodedAudit} from '../src/mpeg2-color-normalization.js';
+import {mpeg2ColorInput,normalizedMpeg2Arguments,MPEG2_COLOR_FILTER,Mpeg2ColorDecodedAudit,Mpeg2DecodedSafetyAudit} from '../src/mpeg2-color-normalization.js';
 import {mpeg2InputEligibility,mpeg2UnprocessableInput,mpeg2UnsafeInput} from '../src/mpeg2-input-scope.js';
 import {mpeg2JitArguments,mpeg2Seek} from '../src/mpeg2-jit-target.js';
 import {readFileSync} from 'node:fs';
@@ -39,3 +39,12 @@ test('Legacy indexed H.264 colour metadata stays closed for MPEG-2 until header 
 test('Eight-bit HDR tags or mastering metadata cannot escape through ordinary MPEG-2 admission',()=>{
  for(const extra of [{color_transfer:'smpte2084'},{color_transfer:'arib-std-b67'},{color_primaries:'bt2020'},{side_data_list:[{side_data_type:'Mastering display metadata'}]}]){const p:any=fixture();Object.assign(p.streams[0],{pix_fmt:'yuv420p',color_range:'tv',color_space:'bt709',color_transfer:'bt709',color_primaries:'bt709'},extra);assert.equal(mpeg2InputEligibility(p).eligible,false);assert.equal(mpeg2UnprocessableInput(p),true);assert.equal(mpeg2UnprocessableInput(compactCatalogProbe(p)),true);}
 });
+
+test('Ordinary MPEG-2 rejects a late unsafe decoded colour or pixel-format change despite a safe initial header',()=>{
+ const frame='n: 0 pts: 0 pts_time:0 fmt:yuv420p cl:left s:320x240 i:P';
+ const a=new Mpeg2DecodedSafetyAudit();a.push(frame);a.push('color_range:tv color_space:bt709 color_primaries:bt709 color_trc:bt709');a.push('color_range:unknown color_space:unknown color_primaries:unknown color_trc:unknown');a.finish();
+ for(const color of ['color_range:pc','color_space:smpte240m','color_primaries:bt2020','color_trc:smpte2084','color_trc:arib-std-b67'])assert.throws(()=>a.push(color));
+ assert.throws(()=>a.push(frame.replace('yuv420p','yuvj420p')));assert.throws(()=>a.push(frame.replace('yuv420p','yuv420p10le')));
+});
+
+test('Interleaved audio and video av_log bodies do not reinterpret audio fltp as video pixel format',()=>{const a=new Mpeg2DecodedSafetyAudit();a.push('[Parsed_ashowinfo] n:63 pts:64512 pts_time:1.344 fmt:fltp channels:2 plane_checksums: [ n: 10 pts:120120 pts_time:0.5005 fmt:yuv420p cl:left s:320x240 i:P');assert.equal(a.frames,1);a.finish();});

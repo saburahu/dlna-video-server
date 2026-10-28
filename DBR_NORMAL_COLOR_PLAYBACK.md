@@ -50,3 +50,5 @@ MP4内の単一AVC Main/High <=4.1、8bit 4:2:0、progressive、偶数サイズ�
 compact color metadataはversion 2へ更新し、side_data_listも保持する。旧H.264 MP4のMPEG-2 resourceは補完成功まで出さず、失敗時も古い色情報へ戻して公開しない。既存の直列ヘッダーキューを使い、Browseでsourceを解析しない。AVC側の判定は変更しない。解析を無効化した環境ではMPEG-2側の対象項目が補完待ちのままになる。補完成功ごとに既存UpdateIDを更新するため、受信機の一覧再取得が必要な場合がある。
 
 Private/Publicとも候補ビルダーの --mpeg2-candidate-auto で同じmanifest機能フラグを選べる。省略時は拡張既定OFF。公開ペア検査は機能フラグ不一致も拒否する。PublicのFFmpeg/ffprobeは外部指定方式のまま。これは公開承認ではなく、候補構成の整合条件である。
+
+通常MPEG-2の途中でdecoded pixel format/full-range/240M/HDRへ変わる合成入力も追加監査した。先頭の安全なheaderから受理されても、途中変化を新たな自動色変換へ広げず、継続監査で配信停止する。通常MPEG-2でも非構造化periodic statsを停止し、音声と映像のav_log body混在を分離する。実際のencoder引数をログへ残し、内部監査失敗を利用者キャンセルと誤記しない。出力encoder/GOP/VBV/PCR/音声レシピおよびAVC経路は変更しない。
