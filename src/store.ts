@@ -50,7 +50,9 @@ function stationFromMetadata(p:Program,metadata:RecordingMetadata){
 /** Cache is already durable. Publish in memory only, without racing a folder scan's JSON write. */
 export function applyRecordingMetadata(source:string,metadata:RecordingMetadata,size:number,mtimeMs:number){
  let changed=false;
- for(const p of programs)if(sourcePathKey(p.filePath)===sourcePathKey(source)&&p.size===size&&Date.parse(p.modified)===mtimeMs){
+ // Program.modified is ISO/millisecond precision; stat retains NTFS sub-ms.
+ // The caller/cache still verify exact source stat before and after parsing.
+ for(const p of programs)if(sourcePathKey(p.filePath)===sourcePathKey(source)&&p.size===size&&Date.parse(p.modified)===new Date(mtimeMs).getTime()){
   if(JSON.stringify(p.metadata)===JSON.stringify(metadata))continue;
   stationFromMetadata(p,metadata);p.metadata=metadata;p.displayTitle=metadataDisplay(p).title;changed=true;
  }

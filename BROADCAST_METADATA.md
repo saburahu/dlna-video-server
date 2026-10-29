@@ -56,3 +56,5 @@ scheduledStart/EndとchannelNameは[ContentDirectory:1](https://upnp.org/specs/a
 REGZA/DBRで、通常一覧／番組説明に局名と予定日時が表示されるか、JST解釈、録画範囲の説明表示を確認する必要があります。表示しない機器へ対応済みとは表現しません。地デジ／BSのchannelNr生成は、ARIB運用と規格の照合が済むまで保留します。全外字・DRCS、編集TSのsegment別時計、校正済み絶対精度は対応範囲外です。
 
 RC監査では、PATのTSID変更、存在しない日付・zone欠落、0秒予定区間を拒否する反証を追加しました。失敗上限状態は素材の更新まで保持します。cache破損は再起動または既存refreshの再読込でpendingとなり、低優先度で再構築します。同期Browseからの全編走査は行いません。
+
+開発環境の実録画検証で、statのミリ秒未満のmtimeとProgram.modifiedのISOミリ秒表現を直接比較すると、自動解析の結果が一覧へ反映されないことを確認しました。公開時の照合をISO保存精度へ揃え、解析前後とキャッシュの厳密なstat照合は維持しています。ミリ秒未満のmtimeを持つ実ファイルを使い、refresh/analyzeを呼ばず通常起動だけでDIDLが更新されるHTTP回帰テストを追加しました。
