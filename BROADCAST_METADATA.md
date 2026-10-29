@@ -41,7 +41,7 @@ PCRラップは既存索引で展開します。PCR不連続／異常interval、
 
 | 属性 | 通知する値 |
 |---|---|
-| dc:title / dc:date / genre | 既存confirmed判定による番組名・開始日時等。未確認なら従来fallback |
+| dc:title / dc:date / genre | 既存confirmed判定による番組名・開始日時等。放送日時は明示JST（+09:00）表記で同じ時点を通知。未確認なら従来fallback |
 | upnp:channelName | 照合できたSDT局名をProgram.station経由で通知。既存の外部設定値は保持 |
 | upnp:scheduledStartTime / scheduledEndTime | confirmedのEIT番組予定。録画前後マージンを加算しない |
 | dc:description | 既存番組説明に、条件を満たした録画範囲を「TOT/PCR推定・TS輸送時刻・絶対精度未校正」と明示して追加。JST秒表示 |
@@ -58,3 +58,5 @@ REGZA/DBRで、通常一覧／番組説明に局名と予定日時が表示さ�
 RC監査では、PATのTSID変更、存在しない日付・zone欠落、0秒予定区間を拒否する反証を追加しました。失敗上限状態は素材の更新まで保持します。cache破損は再起動または既存refreshの再読込でpendingとなり、低優先度で再構築します。同期Browseからの全編走査は行いません。
 
 開発環境の実録画検証で、statのミリ秒未満のmtimeとProgram.modifiedのISOミリ秒表現を直接比較すると、自動解析の結果が一覧へ反映されないことを確認しました。公開時の照合をISO保存精度へ揃え、解析前後とキャッシュの厳密なstat照合は維持しています。ミリ秒未満のmtimeを持つ実ファイルを使い、refresh/analyzeを呼ばず通常起動だけでDIDLが更新されるHTTP回帰テストを追加しました。
+
+実機写真で、一覧・番組詳細・再生タイムラインがUTCの時分をそのまま壁時計として表示する9時間ずれを確認。confirmedの放送由来dc:dateとscheduledStart/Endのみ、同一時点のJSTオフセット表記へ変更しました。cacheのUTC値・原TS・再生時刻・一般動画の日付fallbackは維持します。既存のディレクトリー表示revisionを2へ進め、UpdateIDとイベント通知で古い日時宣言の再取得を促します。日跨ぎ／年跨ぎ／閏日、既に+09:00の入力、瞬間の同値をテスト。実機の修正後表示は再確認まで未確認です。録画範囲の信頼条件250msは変更していません。

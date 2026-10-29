@@ -7,7 +7,7 @@ test('normal recording menu has only all and folders; removed virtual IDs return
  for(const start of [0,1,2,3])for(const count of [0,1,2,20]){const page=base('rec',start,count),ids=[...page.didl.matchAll(/<container id="([^"]+)"/g)].map(m=>m[1]);assert.deepEqual(ids,['all','folders'].slice(start,count?start+count:undefined));assert.equal(page.total,2);assert.equal(page.numberReturned,ids.length);}
  assert.match(base('rec',0,0,true).didl,/childCount="2"/);assert.match(base('0').didl,/<container id="rec"[^>]*childCount="2"/);
  for(const id of ['unwatched','date','station','genre','folder','recent'])for(const metadata of [false,true]){const p=base(id,0,0,metadata);assert.equal(p.total,0);assert.equal(p.numberReturned,0);}
- assert.equal(menuRevisionSoap('<UpdateID>4294967295</UpdateID>','Browse'),'<UpdateID>0</UpdateID>');assert.equal(menuRevisionSoap('<Id>7</Id>','GetSystemUpdateID'),'<Id>8</Id>');assert.equal(menuRevisionSoap('<Source>unchanged</Source>','GetProtocolInfo'),'<Source>unchanged</Source>');
+ assert.equal(menuRevisionSoap('<UpdateID>4294967295</UpdateID>','Browse'),'<UpdateID>1</UpdateID>');assert.equal(menuRevisionSoap('<Id>7</Id>','GetSystemUpdateID'),'<Id>9</Id>');assert.equal(menuRevisionSoap('<Source>unchanged</Source>','GetProtocolInfo'),'<Source>unchanged</Source>');
 });
 
 test('public root pages omit development nodes, preserve photos and real folders, without inspecting sources',async t=>{

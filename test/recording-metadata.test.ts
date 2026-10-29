@@ -74,7 +74,7 @@ test('DIDL uses EIT title/description/date/genre while resource remains byte-ide
   const plain=browseDIDL('all',0,0,[program],'http://localhost',profiles.standard).didl;
   const enriched=browseDIDL('all',0,0,[{...program,metadata:summarizeEit(scan())}],'http://localhost',profiles.standard).didl;
   assert.match(enriched,/<dc:title>番組 &amp; 第４話<\/dc:title>/);assert.match(enriched,/<dc:description>概要 &lt;新&gt;<\/dc:description>/);
-  assert.match(enriched,/<dc:date>2026-07-22T14:30:00.000Z<\/dc:date>/);assert.match(enriched,/<upnp:genre>アニメ／特撮<\/upnp:genre>/);
+  assert.match(enriched,/<dc:date>2026-07-22T23:30:00.000\+09:00<\/dc:date>/);assert.match(enriched,/<upnp:genre>アニメ／特撮<\/upnp:genre>/);
   assert.equal(enriched.match(/<res .*?<\/res>/)![0],plain.match(/<res .*?<\/res>/)![0]);
   const resources=new Map([[program.id,{url:'http://example/media?unchanged=yes',size:456,profile:profiles.standard}]]);
   assert.equal(browseDIDL('all',0,0,[program],'http://localhost',profiles.standard,false,resources).didl.match(/<res .*?<\/res>/)![0],browseDIDL('all',0,0,[{...program,metadata:summarizeEit(scan())}],'http://localhost',profiles.standard,false,resources).didl.match(/<res .*?<\/res>/)![0]);

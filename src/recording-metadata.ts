@@ -50,6 +50,15 @@ export function validMetadata(m: unknown): m is RecordingMetadata {
   return v.state !== 'confirmed' || (v.serviceId !== undefined && v.eventId !== undefined && v.startTime !== undefined && v.durationSeconds !== undefined && ['reservation','full-clock-overlap'].includes(v.method!));
 }
 const genreNames = ['ニュース／報道','スポーツ','情報／ワイドショー','ドラマ','音楽','バラエティ','映画','アニメ／特撮','ドキュメンタリー／教養','劇場／公演','趣味／教育','福祉'];
+/** Preserve the instant, but expose the Japanese broadcast wall clock explicitly.
+ * Observed receiver UIs display the date/time fields without converting a Z
+ * suffix. An explicit offset also remains correct for timezone-aware clients.
+ * Stored SI/cache times remain UTC; this is a presentation-only conversion. */
+function broadcastDidlTime(value:string){
+ const local=new Date(Date.parse(value)+9*3600000);
+ if(!Number.isFinite(local.getTime())||local.getUTCFullYear()<0||local.getUTCFullYear()>9999)return value;
+ return local.toISOString().replace(/Z$/,'+09:00');
+}
 export function metadataDisplay(p: {title: string; modified: string; genre?: string; metadata?: unknown}) {
   const valid=validMetadata(p.metadata)?p.metadata:undefined;
   const m = valid?.state === 'confirmed' ? valid : undefined;
@@ -58,8 +67,8 @@ export function metadataDisplay(p: {title: string; modified: string; genre?: str
   const range=valid?.recordingRange;
   const jst=(s:string)=>{const d=new Date(Date.parse(s)+9*3600000);return Number.isFinite(d.getTime())?d.toISOString().slice(0,19).replace('T',' ')+' JST':s;};
   const recording=range?.state==='consistent'?`録画範囲（TOT/PCR推定・TS輸送時刻、絶対精度未校正）: ${jst(range.startTime!)} ～ ${jst(range.endTime!)}。時刻分解能の目安1秒。`:'';
-  return { title: m?.title?.trim() || p.title, description: [m?.description,recording].filter(Boolean).join('\n'), date: m?.startTime || p.modified,
-    scheduledStartTime:scheduledEnd?m?.startTime:undefined,scheduledEndTime:scheduledEnd,
+  return { title: m?.title?.trim() || p.title, description: [m?.description,recording].filter(Boolean).join('\n'), date: m?.startTime ? broadcastDidlTime(m.startTime) : p.modified,
+    scheduledStartTime:scheduledEnd?broadcastDidlTime(m!.startTime!):undefined,scheduledEndTime:scheduledEnd?broadcastDidlTime(scheduledEnd):undefined,
     genre: m?.genre?.map(n => genreNames[n >> 4] ?? 'その他').filter((v,i,a) => a.indexOf(v) === i).join('、') || p.genre || '' };
 }
 export function summarizeEit(scan: EitScan): RecordingMetadata {
