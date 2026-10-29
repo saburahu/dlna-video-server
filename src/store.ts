@@ -48,11 +48,12 @@ function stationFromMetadata(p:Program,metadata:RecordingMetadata){
   if(!p.station&&metadata.station)p.station=metadata.station;
 }
 /** Cache is already durable. Publish in memory only, without racing a folder scan's JSON write. */
-export function applyRecordingMetadata(source:string,metadata:RecordingMetadata,size:number,mtimeMs:number){
+export function applyRecordingMetadata(source:string,metadata:RecordingMetadata,size:number,mtime:Date){
  let changed=false;
- // Program.modified is ISO/millisecond precision; stat retains NTFS sub-ms.
+ // Match the same Stats.mtime Date used by discovery, not a reconstruction
+ // from fractional mtimeMs (Node can round these differently on Windows).
  // The caller/cache still verify exact source stat before and after parsing.
- for(const p of programs)if(sourcePathKey(p.filePath)===sourcePathKey(source)&&p.size===size&&Date.parse(p.modified)===new Date(mtimeMs).getTime()){
+ for(const p of programs)if(sourcePathKey(p.filePath)===sourcePathKey(source)&&p.size===size&&Date.parse(p.modified)===mtime.getTime()){
   if(JSON.stringify(p.metadata)===JSON.stringify(metadata))continue;
   stationFromMetadata(p,metadata);p.metadata=metadata;p.displayTitle=metadataDisplay(p).title;changed=true;
  }

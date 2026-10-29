@@ -56,7 +56,7 @@ const pcrBackground=createPcrBackground(path.resolve(process.env.PT3_DATA_DIR||'
  busy:()=>experimentalCatalog.jitStatus().some(s=>s.active||s.executors),
  async metadata(source,options){const before=await fs.stat(source),previous=await recordingMetadataCache.lookup(source),result=await recordingMetadataCache.analyze(source,previous.state==='error',options);
   const after=await fs.stat(source);if(before.size!==after.size||before.mtimeMs!==after.mtimeMs)throw new PcrDeferred('source-changed');
-  const changed=applyRecordingMetadata(source,result.metadata,before.size,before.mtimeMs);
+  const changed=applyRecordingMetadata(source,result.metadata,before.size,before.mtime);
   if(!result.cached||changed)log('RECORDING_METADATA','録画メタデータを更新',{state:result.metadata.state,changed,cached:result.cached});
   if(result.metadata.state==='pending')throw new PcrDeferred('metadata-pending');
   if(result.metadata.state==='error')throw Error('Recording metadata analysis failed');

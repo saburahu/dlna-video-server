@@ -4,7 +4,7 @@ import {spawn,type ChildProcess} from 'node:child_process';import {once} from 'n
 import {fixture} from './broadcast-fixture.js';
 
 test('normal startup automatically hydrates station and schedule, Browse/Metadata/HEAD/GET agree and restart reuses cache', {timeout:30000},async t=>{
- const root=await fs.mkdtemp(path.join(os.tmpdir(),'broadcast-http-')),data=path.join(root,'data'),media=path.join(root,'media'),source=path.join(media,'recording.ts');await fs.mkdir(data);await fs.mkdir(media);const bytes=fixture();await fs.writeFile(source,bytes);await fs.utimes(source,946684800.123456,946684800.123456);
+ const root=await fs.mkdtemp(path.join(os.tmpdir(),'broadcast-http-')),data=path.join(root,'data'),media=path.join(root,'media'),source=path.join(media,'recording.ts');await fs.mkdir(data);await fs.mkdir(media);const bytes=fixture();await fs.writeFile(source,bytes);await fs.utimes(source,946684800.1238,946684800.1238);
  const sourceStat=await fs.stat(source);assert.notEqual(sourceStat.mtimeMs,Date.parse(sourceStat.mtime.toISOString()),'exercise real filesystem sub-millisecond precision');
  const udn='uuid:00000000-0000-4000-8000-000000000044';
  await fs.writeFile(path.join(data,'settings.json'),JSON.stringify({udn,port:0,interfaceAddress:'127.0.0.1',folders:[media],profile:'standard'}));
