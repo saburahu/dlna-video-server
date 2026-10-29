@@ -510,7 +510,7 @@ async function handler(req: IncomingMessage, res: ServerResponse) {
         log("TRIAL_OBSERVATION", "人による映像・音声確認", result, req);
         return sendJson(res, 200, result);
       }
-      if (url.pathname === "/api/metadata/refresh" && req.method === "POST") return sendJson(res, 200, await refreshMetadata());
+      if (url.pathname === "/api/metadata/refresh" && req.method === "POST") {const values=await refreshMetadata();await pcrBackground.recheckMetadata(values.filter(p=>p.metadata?.state==='pending').map(p=>p.filePath));return sendJson(res,200,values);}
       if (url.pathname === "/api/programs") return sendJson(res, 200, programs);
       const diagnostic = /^\/api\/programs\/([a-f0-9]+)\/diagnostic$/.exec(url.pathname);
       if (diagnostic && req.method === "POST") {

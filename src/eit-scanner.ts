@@ -49,13 +49,13 @@ async function scan(filePath:string,options:EitScanOptions,control?:PcrWorkContr
   if(options.serviceId!==undefined&&(!Number.isInteger(options.serviceId)||options.serviceId<0||options.serviceId>65535))throw new Error('Invalid service ID');
   const assemblers=new Map([...new Set([0,0x11,0x14,...pids])].map(p=>[p,new SectionAssembler()]));
   const counters={eitPackets:0,eitSections:0,invalidSections:0,syncErrors:0,tableIds:{} as Record<string,number>,unclassifiedPfSections:0,nextSections:0};
-  let patTsid:number|undefined,updateCount=0;
+  let patTsid:number|undefined,updateCount=0,scopeConsistent=true;
   const fingerprints=new Map<string,string>();
   const accept=(pid:number,s:Buffer,packet:number)=>{
     try{
       if(pid===0 && s[0]===0){
         if(s.length<12 || sectionCrc(s)!==0 || !(s[5]&1))return;
-        patTsid=s.readUInt16BE(3);
+        const tsid=s.readUInt16BE(3);if(patTsid!==undefined&&patTsid!==tsid)scopeConsistent=false;patTsid=tsid;
         for(let n=8;n<s.length-4;n+=4){if(n+4>s.length-4)throw new Error('Malformed PAT');const id=s.readUInt16BE(n);if(id)pat.set(id,((s[n+2]&31)<<8)+s[n+3]);}
       }else if(pid===0x11){
         for(const service of parseSdt(s)){if(services.size>=4096)throw Error('SDT service limit exceeded');services.set(JSON.stringify(service),service);}
@@ -118,13 +118,13 @@ async function scan(filePath:string,options:EitScanOptions,control?:PcrWorkContr
   const serviceId=options.serviceId??options.reservation?.serviceId??(pat.size===1?[...pat.keys()][0]:undefined);
   const selection=duration===null?null:selectRecordingEvent(observations,{durationSeconds:duration,startTimeMs:recordingStartTimeMs,serviceId,transportStreamId:patTsid},options.reservation);
   const complete=firstPacket===0&&limit===before.size;
-  const range=recordingRange(timeAnchors,complete&&pat.size===1?duration:null,Math.max(index?.discontinuities??0,index?.invalidIntervals??0));
+  const range=recordingRange(timeAnchors,complete&&scopeConsistent&&pat.size===1?duration:null,Math.max(index?.discontinuities??0,index?.invalidIntervals??0));
   if(selection && (!complete || recordingStartTimeMs===undefined))selection.provisional=true;
   const after=await fs.stat(filePath);
   if(before.size!==after.size||before.mtimeMs!==after.mtimeMs)throw new Error('Recording changed during EIT scan');
   return {complete,readBytes,packetCount:packet-firstPacket,firstPacket,endPacket:packet,packetSize:size,trailingBytes:pending.length,
     elapsedMs:performance.now()-started,indexMs,clockValid,durationSeconds:duration,recordingStartTimeMs:recordingStartTimeMs??null,
     timeAnchorCount:anchors.length,timeAnchorSpreadMs:spread,serviceId:serviceId??null,patServices:[...pat.keys()],
-    transportStreamId:patTsid,services:[...services.values()],recordingRange:range,
+    transportStreamId:patTsid,scopeConsistent,services:[...services.values()],recordingRange:range,
     counters,assembly:Object.fromEntries([...assemblers].map(([p,a])=>[p,a.stats])),records:[...records.values()],selection};
 }

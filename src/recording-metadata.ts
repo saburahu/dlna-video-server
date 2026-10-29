@@ -22,18 +22,27 @@ export type ScanStrategy = (file: string,options?:EitScanOptions) => Promise<Eit
 const fullScan: ScanStrategy = async (file,options) => (await import('./eit-scanner.js')).scanRecordingEit(file,options);
 const digest = (s: string) => createHash('sha256').update(s).digest('hex');
 const text = (s: unknown): s is string => typeof s === 'string' && s.length <= 8192 && !/[\u0000-\u0008\u000b\u000c\u000e-\u001f\ufffd]/u.test(s);
+/** Require an explicit zone and a real calendar date, not Date.parse's rollover. */
+function isoTime(value:unknown):value is string{
+ if(typeof value!=='string')return false;
+ const m=/^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.(\d{1,3}))?(Z|[+-]\d{2}:\d{2})$/.exec(value);if(!m)return false;
+ const [y,mo,d,h,mi,s]=m.slice(1,7).map(Number),date=new Date(0);date.setUTCFullYear(y,mo-1,d);date.setUTCHours(h,mi,s,Number((m[7]??'').padEnd(3,'0')));
+ if([date.getUTCFullYear(),date.getUTCMonth()+1,date.getUTCDate(),date.getUTCHours(),date.getUTCMinutes(),date.getUTCSeconds()].some((v,i)=>v!==[y,mo,d,h,mi,s][i]))return false;
+ if(m[8]!=='Z'&&(Number(m[8].slice(1,3))>23||Number(m[8].slice(4))>59))return false;
+ return Number.isFinite(Date.parse(value));
+}
 export function validMetadata(m: unknown): m is RecordingMetadata {
   if (!m || typeof m !== 'object') return false;
   const v = m as RecordingMetadata;
   if (!['pending','confirmed','uncertain','no-eit','error'].includes(v.state)) return false;
   if (['title','description','reason','station'].some(k => (v as any)[k] !== undefined && !text((v as any)[k]))) return false;
-  if (v.startTime !== undefined && (typeof v.startTime !== 'string' || !Number.isFinite(Date.parse(v.startTime)))) return false;
-  if (v.scannedAt !== undefined && !Number.isFinite(Date.parse(v.scannedAt))) return false;
+  if (v.startTime !== undefined && !isoTime(v.startTime)) return false;
+  if (v.scannedAt !== undefined && !isoTime(v.scannedAt)) return false;
   if (['serviceId','eventId','transportStreamId','originalNetworkId'].some(k => (v as any)[k] !== undefined && (!Number.isInteger((v as any)[k]) || (v as any)[k] < 0 || (v as any)[k] > 65535))) return false;
   if(v.recordingRange!==undefined){const r=v.recordingRange;
     if(!r||r.basis!=='tot-pcr-transport'||!['consistent','missing','insufficient','discontinuous','inconsistent'].includes(r.state)||!Number.isSafeInteger(r.anchorCount)||r.anchorCount<0||!Number.isSafeInteger(r.segments)||r.segments<0)return false;
     if(r.spreadMs!==undefined&&(!Number.isFinite(r.spreadMs)||r.spreadMs<0))return false;
-    if(r.state==='consistent'&&(typeof r.startTime!=='string'||typeof r.endTime!=='string'||!Number.isFinite(Date.parse(r.startTime))||!Number.isFinite(Date.parse(r.endTime))||r.durationSeconds===undefined||!Number.isFinite(r.durationSeconds)||r.durationSeconds<=0||Math.abs(Date.parse(r.endTime)-Date.parse(r.startTime)-r.durationSeconds*1000)>1||r.uncertaintySeconds!==1||r.segments!==1||r.anchorCount<3||r.spreadMs===undefined||r.spreadMs>250))return false;
+    if(r.state==='consistent'&&(!isoTime(r.startTime)||!isoTime(r.endTime)||r.durationSeconds===undefined||!Number.isFinite(r.durationSeconds)||r.durationSeconds<=0||Math.abs(Date.parse(r.endTime)-Date.parse(r.startTime)-r.durationSeconds*1000)>1||r.uncertaintySeconds!==1||r.segments!==1||r.anchorCount<3||r.spreadMs===undefined||r.spreadMs>250))return false;
   }
   if (v.durationSeconds !== undefined && (!Number.isFinite(v.durationSeconds) || v.durationSeconds < 0)) return false;
   if (v.retryAfter !== undefined && !Number.isFinite(v.retryAfter)) return false;
@@ -45,7 +54,7 @@ export function metadataDisplay(p: {title: string; modified: string; genre?: str
   const valid=validMetadata(p.metadata)?p.metadata:undefined;
   const m = valid?.state === 'confirmed' ? valid : undefined;
   const end=m?.startTime&&m.durationSeconds!==undefined?Date.parse(m.startTime)+m.durationSeconds*1000:NaN;
-  const scheduledEnd=Number.isFinite(end)&&Math.abs(end)<=8.64e15?new Date(end).toISOString():undefined;
+  const scheduledEnd=Number.isFinite(end)&&end>Date.parse(m!.startTime!)&&end<=253402300799999?new Date(end).toISOString():undefined;
   const range=valid?.recordingRange;
   const jst=(s:string)=>{const d=new Date(Date.parse(s)+9*3600000);return Number.isFinite(d.getTime())?d.toISOString().slice(0,19).replace('T',' ')+' JST':s;};
   const recording=range?.state==='consistent'?`録画範囲（TOT/PCR推定・TS輸送時刻、絶対精度未校正）: ${jst(range.startTime!)} ～ ${jst(range.endTime!)}。時刻分解能の目安1秒。`:'';
@@ -61,9 +70,9 @@ export function summarizeEit(scan: EitScan): RecordingMetadata {
   // Partial scans and present-count guesses never become normal display metadata.
   const reservation = scan.selection?.reason === 'reservation';
   const dominant = scan.selection?.reason === 'recording-overlap' && scan.clockValid && scan.recordingStartTimeMs !== null && scan.durationSeconds !== null && (primary?.overlapSeconds ?? 0) > scan.durationSeconds / 2;
-  const confirmed = scan.complete && !!event && !!primary && primary.startTimeMs !== null && primary.durationSeconds !== null && (reservation || dominant);
+  const confirmed = scan.complete && scan.scopeConsistent!==false && !!event && !!primary && primary.startTimeMs !== null && primary.durationSeconds !== null && (reservation || dominant);
   const serviceId=primary?.serviceId??scan.serviceId;
-  const stations=(scan.services??[]).filter(s=>scan.complete&&scan.patServices?.includes(s.serviceId)&&s.serviceId===serviceId&&s.transportStreamId===scan.transportStreamId&&(primary?.transportStreamId===undefined||primary.transportStreamId===s.transportStreamId)&&(primary?.originalNetworkId===undefined||s.originalNetworkId===primary.originalNetworkId));
+  const stations=(scan.services??[]).filter(s=>scan.complete&&scan.scopeConsistent!==false&&scan.patServices?.includes(s.serviceId)&&s.serviceId===serviceId&&s.transportStreamId===scan.transportStreamId&&(primary?.transportStreamId===undefined||primary.transportStreamId===s.transportStreamId)&&(primary?.originalNetworkId===undefined||s.originalNetworkId===primary.originalNetworkId));
   const station=stations.length===1&&!stations[0].textSuspect&&text(stations[0].name)?stations[0]:undefined;
   return { state: !scan.counters.eitSections ? (scan.counters.eitPackets && scan.counters.invalidSections ? 'error' : 'no-eit') : confirmed ? 'confirmed' : 'uncertain',
     scannedAt: new Date().toISOString(), reason: scan.selection?.reason ?? 'no-recording-clock',

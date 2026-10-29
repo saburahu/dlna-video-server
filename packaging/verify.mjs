@@ -22,6 +22,7 @@ const read=async file=>JSON.parse(await fs.readFile(file,'utf8'));
 const hash=async file=>createHash('sha256').update(await fs.readFile(file)).digest('hex');
 const results={home,package:path.resolve(input),checks:[],jit:undefined,concurrency:undefined};
 try{
+ const expectedVersion=(await read(path.join(app,'manifest.json'))).productVersion;
  await ctl('ffmpeg','--data',data,'--directory',external);await ctl('doctor');results.checks.push('Manifest, bundled Node, separate user-managed FFmpeg, SQLite and software encoders');
  // Small synthetic library tests the *distribution* and discovery, not receiver quality.
  await run(ffmpeg,['-hide_banner','-loglevel','error','-f','lavfi','-i','testsrc2=size=320x240:rate=25','-f','lavfi','-i','sine=sample_rate=48000','-t','4','-c:v','mpeg2video','-c:a','aac','-f','mpegts',path.join(media,'試験.ts')]);
@@ -39,7 +40,7 @@ try{
  assert.equal((await fetch(base+'/api/status',{headers:{Origin:'https://attacker.example'}})).status,403,'foreign Origin');
  const lan=Object.values(os.networkInterfaces()).flat().find(i=>i?.family==='IPv4'&&!i.internal);if(lan)assert.equal((await fetch('http://'+lan.address+':19204/api/status')).status,403,'LAN management');
  results.checks.push('Actual HTTP: absent write header, foreign Host/Origin and LAN administration rejected');
- const status=await fetch(base+'/api/status').then(r=>r.json());assert.equal(status.running,true);assert.equal(status.productVersion,'0.4.3');assert.ok(status.buildId?.startsWith('0.4.3'));assert.equal(status.logStorage.error,null);
+ const status=await fetch(base+'/api/status').then(r=>r.json());assert.equal(status.running,true);assert.equal(status.productVersion,expectedVersion);assert.ok(status.buildId?.startsWith(expectedVersion+'-'));assert.equal(status.logStorage.error,null);
  const trialPolicyFile=path.join(data,'experimental-catalog','jit.json'),trialBefore=await hash(trialPolicyFile);
  const trialState=await fetch(base+'/api/clients/mpeg2-trials').then(r=>r.json());assert.equal(trialState.version,'receiver-mpeg2-trial-settings-v1');assert.equal(trialState.automaticCandidate,(await read(path.join(app,'manifest.json'))).candidateFeatures?.mpeg2BoundExpansion==='automatic-v1');
  assert.equal((await fetch(base+'/api/clients/mpeg2-trials',{method:'POST',headers:{'Content-Type':'application/json','X-PT3-Management':'1',Origin:'https://attacker.example'},body:'{}'})).status,403);

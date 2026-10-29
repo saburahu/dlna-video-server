@@ -27,5 +27,10 @@ test('normal startup automatically hydrates station and schedule, Browse/Metadat
  const item=(s:string)=>decode(s.match(/<Result>([\s\S]*?)<\/Result>/)![1]).match(/<item\b[\s\S]*?<\/item>/)![0];assert.equal(item(direct),item(meta));
  const resource=item(meta).match(/<res\b[^>]*>([^<]+)<\/res>/)![1],head=await fetch(resource,{method:'HEAD'});assert.equal(head.status,200);assert.equal(Number(head.headers.get('content-length')),bytes.length);
  const get=await fetch(resource,{headers:{Range:'bytes=0-187'}});assert.equal(get.status,206);assert.deepEqual(Buffer.from(await get.arrayBuffer()),bytes.subarray(0,188));
+ const cacheDir=path.join(data,'eit-cache'),cacheFile=path.join(cacheDir,(await fs.readdir(cacheDir)).find(x=>x.endsWith('.json'))!);const damaged=JSON.parse(await fs.readFile(cacheFile,'utf8'));damaged.metadata.title='corrupt-cache';await fs.writeFile(cacheFile,JSON.stringify(damaged));
+ const invalid=await fetch(url+'/api/metadata/refresh',{method:'POST',headers:{'X-PT3-Management':'1'}}).then(r=>r.json());assert.equal(invalid[0].metadata.state,'pending');
+ const parallel=await Promise.all(Array.from({length:10},()=>browse('all','BrowseDirectChildren')));assert(parallel.every(x=>!x.includes('corrupt-cache')));
+ for(let i=0;i<150;i++){p=(await (await fetch(url+'/api/programs')).json())[0];if(p.metadata.state==='confirmed')break;await sleep(50);}assert.equal(p.metadata.state,'confirmed');assert.notEqual(p.metadata.title,'corrupt-cache');
+ assert.equal(item(await browse('item:'+p.id,'BrowseMetadata')).match(/<res\b[^>]*>([^<]+)/)![1],resource);
  const scanned=p.metadata.scannedAt;await stop();url=await start();const reloaded=(await (await fetch(url+'/api/programs')).json())[0];assert.equal(reloaded.metadata.scannedAt,scanned);assert.equal(reloaded.id,p.id);assert.equal(JSON.parse(await fs.readFile(path.join(data,'settings.json'),'utf8')).udn,udn);assert.deepEqual(await fs.readFile(source),bytes);await stop();
 });
