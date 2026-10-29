@@ -12,7 +12,7 @@ import { profiles } from '../src/core.js';
 import type { Program } from '../src/store.js';
 function scan(): EitScan {
   const event={eventId:9,startTimeMs:Date.UTC(2026,6,22,14,30),durationSeconds:90,title:'番組 & 第４話',description:'概要 <新>',genres:[0x70],textSuspect:false};
-  return {complete:true,clockValid:true,durationSeconds:100,recordingStartTimeMs:event.startTimeMs-5000,counters:{eitSections:10},
+  return {recordingOrigin:{version:1,basis:'tot-pcr-prefix',state:'estimated',anchors:3,firstSeconds:1,lastSeconds:10,spreadMs:0,startTime:new Date(event.startTimeMs-5000).toISOString(),uncertaintySeconds:1},complete:true,clockValid:true,durationSeconds:100,recordingStartTimeMs:event.startTimeMs-5000,counters:{eitSections:10},
     selection:{reason:'recording-overlap',provisional:true,candidates:[{}],primary:{serviceId:141,eventId:9,startTimeMs:event.startTimeMs,durationSeconds:90,overlapSeconds:90}},
     records:[{serviceId:141,eventId:9,startTimeMs:event.startTimeMs,updates:[{tableId:0x4e,current:true,event}]}]} as unknown as EitScan;
 }
@@ -74,7 +74,7 @@ test('DIDL uses EIT title/description/date/genre while resource remains byte-ide
   const plain=browseDIDL('all',0,0,[program],'http://localhost',profiles.standard).didl;
   const enriched=browseDIDL('all',0,0,[{...program,metadata:summarizeEit(scan())}],'http://localhost',profiles.standard).didl;
   assert.match(enriched,/<dc:title>番組 &amp; 第４話<\/dc:title>/);assert.match(enriched,/<dc:description>概要 &lt;新&gt;<\/dc:description>/);
-  assert.match(enriched,/<dc:date>2026-07-22T23:30:00.000\+09:00<\/dc:date>/);assert.match(enriched,/<upnp:genre>アニメ／特撮<\/upnp:genre>/);
+  assert.match(enriched,/<dc:date>2026-07-22T23:29:55.000\+09:00<\/dc:date>/);assert.match(enriched,/<upnp:genre>アニメ／特撮<\/upnp:genre>/);
   assert.equal(enriched.match(/<res .*?<\/res>/)![0],plain.match(/<res .*?<\/res>/)![0]);
   const resources=new Map([[program.id,{url:'http://example/media?unchanged=yes',size:456,profile:profiles.standard}]]);
   assert.equal(browseDIDL('all',0,0,[program],'http://localhost',profiles.standard,false,resources).didl.match(/<res .*?<\/res>/)![0],browseDIDL('all',0,0,[{...program,metadata:summarizeEit(scan())}],'http://localhost',profiles.standard,false,resources).didl.match(/<res .*?<\/res>/)![0]);

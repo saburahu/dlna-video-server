@@ -1,7 +1,7 @@
 import test from 'node:test';import assert from 'node:assert/strict';
 import {metadataDisplay,validMetadata,type RecordingMetadata} from '../src/recording-metadata.js';
 import {browseDIDL} from '../src/upnp.js';import {profiles} from '../src/core.js';
-const m=(startTime:string,durationSeconds=1800):RecordingMetadata=>({state:'confirmed',method:'full-clock-overlap',serviceId:101,eventId:11,startTime,durationSeconds,title:'Synthetic broadcast',station:'Synthetic station'});
+const m=(startTime:string,durationSeconds=1800):RecordingMetadata=>({state:'confirmed',method:'full-clock-overlap',serviceId:101,eventId:11,startTime,durationSeconds,recordingOrigin:{version:1,basis:'tot-pcr-prefix',state:'estimated',anchors:3,firstSeconds:1,lastSeconds:10,spreadMs:0,startTime,uncertaintySeconds:1},title:'Synthetic broadcast',station:'Synthetic station'});
 const p={id:'synthetic',filePath:'synthetic.ts',title:'filename',size:188000,modified:'2020-01-01T00:00:00.000Z',published:true,analysis:'ok' as const,duration:1820};
 test('broadcast wall clock has explicit JST without moving its instant or changing stored metadata',()=>{
  const metadata=m('2026-10-25T12:45:00.000Z',3240),original=JSON.stringify(metadata),display=metadataDisplay({...p,metadata});

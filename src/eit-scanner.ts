@@ -9,7 +9,7 @@ import {aribDate,sectionCrc} from './arib-metadata.js';
 import {EitObservation,ReservationEvent,selectRecordingEvent} from './recording-event.js';
 import {pcrWork,PcrDeferred,type PcrWorkControl} from './pcr-work.js';
 import type {PcrIndex} from './core.js';
-import {parseSdt,recordingRange,type BroadcastService,type TimeAnchor} from './recording-si.js';
+import {parseSdt,recordingRange,recordingOrigin,type BroadcastService,type TimeAnchor} from './recording-si.js';
 
 export interface EitScanOptions {
   serviceId?: number; reservation?: ReservationEvent;
@@ -126,5 +126,6 @@ async function scan(filePath:string,options:EitScanOptions,control?:PcrWorkContr
     elapsedMs:performance.now()-started,indexMs,clockValid,durationSeconds:duration,recordingStartTimeMs:recordingStartTimeMs??null,
     timeAnchorCount:anchors.length,timeAnchorSpreadMs:spread,serviceId:serviceId??null,patServices:[...pat.keys()],
     transportStreamId:patTsid,scopeConsistent,services:[...services.values()],recordingRange:range,
+    recordingOrigin:firstPacket===0&&(complete||clockValid&&seconds(packet)!>=20)?recordingOrigin(timeAnchors,clockValid&&scopeConsistent&&pat.size===1):{version:1 as const,basis:'tot-pcr-prefix' as const,state:'unavailable' as const,anchors:0,reason:'initial-window-not-observed'},
     counters,assembly:Object.fromEntries([...assemblers].map(([p,a])=>[p,a.stats])),records:[...records.values()],selection};
 }

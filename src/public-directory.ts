@@ -1,8 +1,8 @@
 /** Virtual development nodes only. Real folders use opaque folder IDs, so a
  * directory named "Experimental Media" is not affected. HTTP tools stay intact. */
 export const DEVELOPMENT_DIRECTORY_ROOTS=['experimental','client-diagnostics','avc-http-control','mpeg-ts-trial'] as const;
-// Advance wire UpdateID when broadcast date serialization changes to explicit JST.
-export const PUBLIC_MENU_REVISION=2;
+// Advance wire UpdateID for explicit JST dates and recorded playback-clock origins.
+export const PUBLIC_MENU_REVISION=3;
 export const developmentDirectory=(id:string)=>DEVELOPMENT_DIRECTORY_ROOTS.some(root=>id===root||id.startsWith(root+'/'));
 export function menuRevisionSoap(xml:string,action:string){
  const tag=action==='Browse'?'UpdateID':action==='GetSystemUpdateID'?'Id':undefined;

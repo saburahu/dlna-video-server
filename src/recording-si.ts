@@ -20,6 +20,22 @@ export function parseSdt(section:Buffer):BroadcastService[]{
  }return rows;
 }
 export interface TimeAnchor {packet:number;seconds:number;timeMs:number}
+export interface RecordingOrigin {
+ version:1;basis:'tot-pcr-prefix';state:'estimated'|'unavailable';anchors:number;
+ startTime?:string;firstSeconds?:number;lastSeconds?:number;spreadMs?:number;uncertaintySeconds?:1;reason?:string;
+}
+/** Only the initial transport clock origin, never a claim about the whole file. */
+export function recordingOrigin(anchors:TimeAnchor[],eligible:boolean):RecordingOrigin{
+ const common={version:1 as const,basis:'tot-pcr-prefix' as const};
+ if(!eligible)return {...common,state:'unavailable',anchors:0,reason:'ambiguous-or-discontinuous-clock'};
+ const local=anchors.filter(a=>a.seconds>=0&&a.seconds<=20&&Number.isFinite(a.timeMs)).sort((a,b)=>a.seconds-b.seconds);
+ const count=local.length,firstSeconds=local[0]?.seconds,lastSeconds=local.at(-1)?.seconds;
+ const offsets=local.map(a=>a.timeMs-a.seconds*1000).sort((a,b)=>a-b),spreadMs=count?offsets.at(-1)!-offsets[0]:undefined;
+ const evidence={...common,anchors:count,firstSeconds,lastSeconds,spreadMs};
+ if(count<3||firstSeconds!>10||lastSeconds!-firstSeconds!<5)return {...evidence,state:'unavailable',reason:'insufficient-initial-anchors'};
+ if(spreadMs!>250)return {...evidence,state:'unavailable',reason:'unstable-initial-anchors'};
+ return {...evidence,state:'estimated',startTime:new Date(offsets[Math.floor(count/2)]).toISOString(),uncertaintySeconds:1};
+}
 export interface RecordingRange {
  state:'consistent'|'missing'|'insufficient'|'discontinuous'|'inconsistent';
  basis:'tot-pcr-transport';segments:number;anchorCount:number;spreadMs?:number;

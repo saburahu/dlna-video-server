@@ -41,7 +41,8 @@ PCRラップは既存索引で展開します。PCR不連続／異常interval、
 
 | 属性 | 通知する値 |
 |---|---|
-| dc:title / dc:date / genre | 既存confirmed判定による番組名・開始日時等。放送日時は明示JST（+09:00）表記で同じ時点を通知。未確認なら従来fallback |
+| dc:title / genre | 既存confirmed判定による番組名等。未確認なら従来fallback |
+| dc:date | confirmed録画の先頭時計（recordingOrigin、または既存のconsistent録画範囲のstart）。明示JST +09:00。番組予定でNPT0を代用せず、録画原点を得られないconfirmed項目では省略。未確定metadataの従来fallbackは維持 |
 | upnp:channelName | 照合できたSDT局名をProgram.station経由で通知。既存の外部設定値は保持 |
 | upnp:scheduledStartTime / scheduledEndTime | confirmedのEIT番組予定。録画前後マージンを加算しない |
 | dc:description | 既存番組説明に、条件を満たした録画範囲を「TOT/PCR推定・TS輸送時刻・絶対精度未校正」と明示して追加。JST秒表示 |
@@ -60,3 +61,13 @@ RC監査では、PATのTSID変更、存在しない日付・zone欠落、0秒予
 開発環境の実録画検証で、statのミリ秒未満のmtimeとProgram.modifiedのISOミリ秒表現を直接比較すると、自動解析の結果が一覧へ反映されないことを確認しました。公開時の照合をISO保存精度へ揃え、解析前後とキャッシュの厳密なstat照合は維持しています。ミリ秒未満のmtimeを持つ実ファイルを使い、refresh/analyzeを呼ばず通常起動だけでDIDLが更新されるHTTP回帰テストを追加しました。
 
 実機写真で、一覧・番組詳細・再生タイムラインがUTCの時分をそのまま壁時計として表示する9時間ずれを確認。confirmedの放送由来dc:dateとscheduledStart/Endのみ、同一時点のJSTオフセット表記へ変更しました。cacheのUTC値・原TS・再生時刻・一般動画の日付fallbackは維持します。既存のディレクトリー表示revisionを2へ進め、UpdateIDとイベント通知で古い日時宣言の再取得を促します。日跨ぎ／年跨ぎ／閏日、既に+09:00の入力、瞬間の同値をテスト。実機の修正後表示は再確認まで未確認です。録画範囲の信頼条件250msは変更していません。
+
+### 録画余白と時計原点の分離
+
+EIT予定開始は録画先頭ではありません。dc:dateを番組予定へ固定すると、受信機の再生時計が録画前余白ぶんずれます。予定はscheduledStart/Endへ残し、dc:dateにはTOT/PCRから得たファイルNPT0の時刻を使います。TS切詰め、映像PTS変更、予定時刻からの余白推測はしません。
+
+追加recordingOrigin（version1、tot-pcr-prefix、estimated/unavailable、startTime、anchors、first/lastSeconds、spreadMs、uncertaintySeconds）は先頭時計だけの証拠です。先頭20秒の観測窓、TOT3点以上・5秒以上のspan、先頭アンカー10秒以内、250ms以内の局所offset幅、単一サービス/連続した全体PCRを必要条件とします。既存recordingRangeの全編250ms判定は不変。局所原点が得られても、全編範囲をconsistentへ変更しません。
+
+既存schema2のうち、全編時計検証済みだが録画範囲のoffset幅が不整合で先頭情報がないconfirmed cacheは、既存背景処理で最大64MiBのprefixを再読取して原点だけを補完します。旧全編EITを部分EITで上書きせず、SID/TSID/ONIDと現statを照合。prefixが20秒を覆えなければ既存の全編解析へ戻します。中断時は不完全cacheを保存せず、同じ源への並行要求は既存仕組みで統合。成功/不採用の結果をcacheに保持して繰返し読取を防ぎます。Browse同期解析・新DB・別カタログ・別管理画面はありません。
+
+1秒という時刻分解能の目安/絶対精度未校正は維持。これは最初の表示フレームの絶対時刻や、編集・放送時計飛び後も動的表示が正確なことの保証ではありません。新しい動的時計APIは追加せず、受信機がNPTへ加算する基準時刻を提供します。
