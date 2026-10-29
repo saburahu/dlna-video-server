@@ -41,6 +41,25 @@ export let settings: Settings = {
 export let programs: Program[] = [];
 export let systemUpdateId = 1;
 
+function stationFromMetadata(p:Program,metadata:RecordingMetadata){
+  // Keep externally supplied station values; replace/clear only SI-derived ones.
+  const derived=p.metadata?.station!==undefined&&p.station===p.metadata.station;
+  if(derived)delete p.station;
+  if(!p.station&&metadata.station)p.station=metadata.station;
+}
+/** Cache is already durable. Publish in memory only, without racing a folder scan's JSON write. */
+export function applyRecordingMetadata(source:string,metadata:RecordingMetadata,size:number,mtimeMs:number){
+ let changed=false;
+ for(const p of programs)if(sourcePathKey(p.filePath)===sourcePathKey(source)&&p.size===size&&Date.parse(p.modified)===mtimeMs){
+  if(JSON.stringify(p.metadata)===JSON.stringify(metadata))continue;
+  stationFromMetadata(p,metadata);p.metadata=metadata;p.displayTitle=metadataDisplay(p).title;changed=true;
+ }
+ if(changed)systemUpdateId++;
+ return changed;
+}
+
+
+
 async function readJson<T>(file: string, fallback: T): Promise<T> {
   try { return JSON.parse(await fs.readFile(file, "utf8")) as T; } catch { return fallback; }
 }
@@ -63,7 +82,8 @@ export async function refreshMetadata(persist = true) {
   const cache = new RecordingMetadataCache(path.join(dataDir, "eit-cache"), undefined, settings.folders);
   for (const p of programs) {
     p.originalFilename = path.basename(p.filePath);
-    p.metadata = await cache.lookup(p.filePath);
+    const previous=p.metadata,metadata=await cache.lookup(p.filePath);
+    if(p.metadata===previous){stationFromMetadata(p,metadata);p.metadata=metadata;}
     p.displayTitle = metadataDisplay(p).title;
   }
   systemUpdateId++;
@@ -128,7 +148,7 @@ async function scanProgramInventory(log: (category: string, message: string, det
   if(inventory&&JSON.stringify(next)===before){log("FILE_WATCH", `スキャン完了: ${programs.length}件（変更なし）`);return programs;}
   programs = next;
   await refreshMetadata(false);
-  if(JSON.stringify(programs)===before)systemUpdateId=previousUpdateId;
+  if(JSON.stringify(programs)===before&&systemUpdateId===previousUpdateId+1)systemUpdateId=previousUpdateId;
   else await savePrograms();
   log("FILE_WATCH", `スキャン完了: ${programs.length}件`);
   return programs;

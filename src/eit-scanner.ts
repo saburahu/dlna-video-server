@@ -7,22 +7,34 @@ import {SectionAssembler} from './psi-scanner.js';
 import {parseEitSection,EitEvent} from './eit-section.js';
 import {aribDate,sectionCrc} from './arib-metadata.js';
 import {EitObservation,ReservationEvent,selectRecordingEvent} from './recording-event.js';
+import {pcrWork,PcrDeferred,type PcrWorkControl} from './pcr-work.js';
+import type {PcrIndex} from './core.js';
+import {parseSdt,recordingRange,type BroadcastService,type TimeAnchor} from './recording-si.js';
 
 export interface EitScanOptions {
   serviceId?: number; reservation?: ReservationEvent;
   /** Explicit prefix diagnostics only, never mistaken for a full scan. */
   maxBytes?: number; startByte?: number; eitPids?: number[]; maxObservations?: number;
+  background?:boolean;bytesPerSecond?:number;
 }
 export async function scanRecordingEit(filePath: string, options: EitScanOptions = {}) {
+  if(!options.background)return scan(filePath,options);
+  const st=await fs.stat(filePath),index=await buildPcrIndex(filePath,{background:true,bytesPerSecond:options.bytesPerSecond});
+  return pcrWork.run({source:filePath,key:`eit:${st.size}:${st.mtimeMs}`,background:true,yieldToMedia:true,bytesPerSecond:options.bytesPerSecond},control=>scan(filePath,options,control,index,st));
+}
+async function scan(filePath:string,options:EitScanOptions,control?:PcrWorkControl,preparedIndex?:PcrIndex|null,preparedSource?:{size:number;mtimeMs:number}){
   const before=await fs.stat(filePath),started=performance.now();
+  if(preparedSource&&(before.size!==preparedSource.size||before.mtimeMs!==preparedSource.mtimeMs))throw new PcrDeferred('source-changed');
+  control?.check();
   const handle=await fs.open(filePath,'r');let initial:Buffer;
-  try{initial=Buffer.alloc(Math.min(before.size,8*1024*1024));const r=await handle.read(initial,0,initial.length,0);initial=initial.subarray(0,r.bytesRead);}finally{await handle.close();}
+  try{initial=Buffer.alloc(Math.min(before.size,8*1024*1024));let filled=0;while(filled<initial.length){control?.check();const r=await handle.read(initial,filled,Math.min(initial.length-filled,control?256*1024:initial.length),filled);if(!r.bytesRead)break;filled+=r.bytesRead;await control?.charge(r.bytesRead,'metadata-prefix');}initial=initial.subarray(0,filled);}finally{await handle.close();}
   const inspection=inspectTs(initial);
   if(!inspection.packetSize || inspection.syncOffset===null)throw new Error('No supported TS packet sync');
-  const indexStarted=performance.now(),index=await buildPcrIndex(filePath),indexMs=performance.now()-indexStarted;
+  const indexStarted=performance.now(),index=preparedIndex===undefined?await buildPcrIndex(filePath):preparedIndex,indexMs=performance.now()-indexStarted;
   const clockValid=!!index && !index.discontinuities && !index.invalidIntervals;
   const seconds=(packet:number)=>clockValid?packetTime(index!,packet):null;
   const observations:EitObservation[]=[],anchors:{packet:number;startTimeMs:number}[]=[];
+  const timeAnchors:TimeAnchor[]=[],services=new Map<string,BroadcastService>();
   const records=new Map<string,{
     serviceId:number;eventId:number;transportStreamId:number;originalNetworkId:number;startTimeMs:number|null;
     count:number;firstPacket:number;lastPacket:number;firstSeconds:number|null;lastSeconds:number|null;
@@ -35,7 +47,7 @@ export async function scanRecordingEit(filePath: string, options: EitScanOptions
   if(options.maxBytes!==undefined&&(!Number.isFinite(options.maxBytes)||options.maxBytes<=0))throw new Error('Invalid scan limit');
   if(options.startByte!==undefined&&(!Number.isFinite(options.startByte)||options.startByte<0||options.startByte>=before.size))throw new Error('Invalid scan start');
   if(options.serviceId!==undefined&&(!Number.isInteger(options.serviceId)||options.serviceId<0||options.serviceId>65535))throw new Error('Invalid service ID');
-  const assemblers=new Map([...new Set([0,0x14,...pids])].map(p=>[p,new SectionAssembler()]));
+  const assemblers=new Map([...new Set([0,0x11,0x14,...pids])].map(p=>[p,new SectionAssembler()]));
   const counters={eitPackets:0,eitSections:0,invalidSections:0,syncErrors:0,tableIds:{} as Record<string,number>,unclassifiedPfSections:0,nextSections:0};
   let patTsid:number|undefined,updateCount=0;
   const fingerprints=new Map<string,string>();
@@ -45,9 +57,11 @@ export async function scanRecordingEit(filePath: string, options: EitScanOptions
         if(s.length<12 || sectionCrc(s)!==0 || !(s[5]&1))return;
         patTsid=s.readUInt16BE(3);
         for(let n=8;n<s.length-4;n+=4){if(n+4>s.length-4)throw new Error('Malformed PAT');const id=s.readUInt16BE(n);if(id)pat.set(id,((s[n+2]&31)<<8)+s[n+3]);}
+      }else if(pid===0x11){
+        for(const service of parseSdt(s)){if(services.size>=4096)throw Error('SDT service limit exceeded');services.set(JSON.stringify(service),service);}
       }else if(pid===0x14&&s[0]===0x73){
         if(s.length<14 || sectionCrc(s)!==0)throw new Error('Invalid TOT');
-        const time=aribDate(s.subarray(3,8)),t=seconds(packet);if(time!==null&&t!==null)anchors.push({packet,startTimeMs:time-t*1000});
+        const time=aribDate(s.subarray(3,8)),t=seconds(packet);if(time!==null&&t!==null){if(anchors.length>=20000)throw Error('Time anchor limit exceeded');anchors.push({packet,startTimeMs:time-t*1000});timeAnchors.push({packet,seconds:t,timeMs:time});}
       }else if(pids.includes(pid)){
         counters.tableIds[s[0]]=1+(counters.tableIds[s[0]]??0);
         if(s[0]!==0x4e&&s[0]!==0x4f)return; // schedule counted, not substituted for p/f
@@ -84,7 +98,8 @@ export async function scanRecordingEit(filePath: string, options: EitScanOptions
   const limit=Math.min(before.size,scanStart+(options.maxBytes??before.size));
   const firstPacket=Math.floor((scanStart-packetStart)/size);
   let pending:Buffer=Buffer.alloc(0),packet=firstPacket,readBytes=0;
-  for await(const chunk of createReadStream(filePath,{start:scanStart,end:limit-1,highWaterMark:4*1024*1024})){
+  for await(const chunk of createReadStream(filePath,{start:scanStart,end:limit-1,highWaterMark:control?256*1024:4*1024*1024,signal:control?.signal})){
+    control?.check();
     readBytes+=chunk.length;const data=pending.length?Buffer.concat([pending,chunk]):chunk as Buffer;let pos=0;
     for(;pos+size<=data.length;pos+=size,packet++){
       const b=data.subarray(pos+prefix,pos+prefix+188);
@@ -93,6 +108,7 @@ export async function scanRecordingEit(filePath: string, options: EitScanOptions
       if(assembler){if(pids.includes(pid))counters.eitPackets++;for(const s of assembler.feed(b))accept(pid,s,packet);}
     }
     pending=Buffer.from(data.subarray(pos));
+    await control?.charge(chunk.length,'metadata-si');
   }
   for(const a of assemblers.values())a.finish();
   const duration=clockValid?packetTime(index!,index!.packetCount):null;
@@ -102,11 +118,13 @@ export async function scanRecordingEit(filePath: string, options: EitScanOptions
   const serviceId=options.serviceId??options.reservation?.serviceId??(pat.size===1?[...pat.keys()][0]:undefined);
   const selection=duration===null?null:selectRecordingEvent(observations,{durationSeconds:duration,startTimeMs:recordingStartTimeMs,serviceId,transportStreamId:patTsid},options.reservation);
   const complete=firstPacket===0&&limit===before.size;
+  const range=recordingRange(timeAnchors,complete&&pat.size===1?duration:null,Math.max(index?.discontinuities??0,index?.invalidIntervals??0));
   if(selection && (!complete || recordingStartTimeMs===undefined))selection.provisional=true;
   const after=await fs.stat(filePath);
   if(before.size!==after.size||before.mtimeMs!==after.mtimeMs)throw new Error('Recording changed during EIT scan');
   return {complete,readBytes,packetCount:packet-firstPacket,firstPacket,endPacket:packet,packetSize:size,trailingBytes:pending.length,
     elapsedMs:performance.now()-started,indexMs,clockValid,durationSeconds:duration,recordingStartTimeMs:recordingStartTimeMs??null,
     timeAnchorCount:anchors.length,timeAnchorSpreadMs:spread,serviceId:serviceId??null,patServices:[...pat.keys()],
+    transportStreamId:patTsid,services:[...services.values()],recordingRange:range,
     counters,assembly:Object.fromEntries([...assemblers].map(([p,a])=>[p,a.stats])),records:[...records.values()],selection};
 }

@@ -12,7 +12,9 @@ import { DiagnosticLog } from "./diagnostic-log.js";
 import { inspectStartup } from "./startup-diagnostic.js";
 import { ffprobeDiagnostic, refreshMetadata, loadStore, programs, scanFolders, settings, updateSettings, systemUpdateId,observeRecordingInventory } from "./store.js";
 import {createPcrBackground} from './pcr-background.js';
-import {pcrWork} from './pcr-work.js';
+import {pcrWork,PcrDeferred} from './pcr-work.js';
+import {RecordingMetadataCache} from './recording-metadata.js';
+import {applyRecordingMetadata} from './store.js';
 import { Tts192Transform } from "./tts.js";
 import { contentPacketLayout, ContentPacketTransform } from "./content-packet.js";
 import { formatNpt, packetTime, timeSeekProfile, timeSeekSlice } from "./time-seek.js";
@@ -49,7 +51,17 @@ let familyShadow=createFamilyShadow();
 let activeMediaReads=0;
 const playbackShadow = createShadowStore(shadowDirectory(), () => settings.folders);
 const experimentalCatalog = createExperimentalCatalog(experimentalCatalogDirectory(), (message, detail) => log('EXPERIMENTAL_CATALOG', message, detail), () => settings.folders,{},inventory=>scanFolders(log,inventory),{busy:()=>activeMediaReads>0,recordingState:()=>programs.map(p=>({file:p.filePath,size:p.size,mtimeMs:Date.parse(p.modified)}))});
-const pcrBackground=createPcrBackground(path.resolve(process.env.PT3_DATA_DIR||'data'),()=>settings.folders,(event,detail)=>log('PCR_BACKGROUND',event,detail),{busy:()=>experimentalCatalog.jitStatus().some(s=>s.active||s.executors)});
+const recordingMetadataCache=new RecordingMetadataCache();
+const pcrBackground=createPcrBackground(path.resolve(process.env.PT3_DATA_DIR||'data'),()=>settings.folders,(event,detail)=>log('PCR_BACKGROUND',event,detail),{
+ busy:()=>experimentalCatalog.jitStatus().some(s=>s.active||s.executors),
+ async metadata(source,options){const before=await fs.stat(source),previous=await recordingMetadataCache.lookup(source),result=await recordingMetadataCache.analyze(source,previous.state==='error',options);
+  const after=await fs.stat(source);if(before.size!==after.size||before.mtimeMs!==after.mtimeMs)throw new PcrDeferred('source-changed');
+  const changed=applyRecordingMetadata(source,result.metadata,before.size,before.mtimeMs);
+  if(!result.cached||changed)log('RECORDING_METADATA','録画メタデータを更新',{state:result.metadata.state,changed,cached:result.cached});
+  if(result.metadata.state==='pending')throw new PcrDeferred('metadata-pending');
+  if(result.metadata.state==='error')throw Error('Recording metadata analysis failed');
+ }
+});
 observeRecordingInventory(snapshot=>pcrBackground.accept(snapshot));
 const clientDiagnostics=createClientContractDiagnostics(path.resolve(process.env.PT3_DATA_DIR||'data','client-diagnostics'),(message,detail)=>log('CLIENT_CONTRACT',message,detail));
 const avcControl=createAvcHttpControl(path.resolve(process.env.PT3_DATA_DIR||'data','avc-http-control'),path.resolve(experimentalCatalogDirectory(),'jit.json'),(message,detail)=>log('AVC_HTTP_CONTROL',message,detail));

@@ -1,3 +1,5 @@
+v0.4.4 開発候補: 録画TSの放送メタデータ自動取得を追加しています。仕様と制限は [BROADCAST_METADATA.md](BROADCAST_METADATA.md) を参照してください。正式公開前・受信機での情報表示は未確認です。
+
 # DLNA Video Server
 
 > v0.4.3：DBR向け色正規化・入力互換性・カタログ補完・JIT監査を改善。WMV Seek復帰などの既知制限があります。

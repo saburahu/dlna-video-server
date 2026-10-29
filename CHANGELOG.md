@@ -1,5 +1,9 @@
 # 変更履歴
 
+## 0.4.4（開発候補）
+
+録画TSのSDT局名とEIT放送予定日時、TOT/PCRによる録画範囲の推定情報を追加。既存PCR負荷制御を利用した自動解析、旧キャッシュ更新、同一実体の重複処理防止を実装。標準DLNA画面での表示は未確認で、動的な放送時計は含みません。詳細はBROADCAST_METADATA.md。
+
 ## 0.4.3
 
 DBR向け技術条件付き色正規化を通常一覧のMPEG-2 JITへ統合し、AVI/WMV互換性、受信機の役割/endpoint判定、メタデータ補完、継続監査/後処理を改善。隔離試験UI/APIは撤去。特殊色MP4の実機再生・切替・Seekと代表全編のPC配信を確認しました。DBRのWMV Seek復帰、AVI開始直後Seek、WMA終端、Vorbis副音声等は未解決です。詳細と保証しない範囲はpackaging/release-notes/0.4.3.md。

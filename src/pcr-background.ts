@@ -17,11 +17,11 @@ export function validatePcrPolicy(input:unknown):PcrBackgroundPolicy{
  for(const k of ['readBytesPerSecond','settleMs','idleGraceMs','minFreeBytes','cleanupGraceMs','cleanupBatch'] as const)if(!Number.isSafeInteger(p[k])||p[k]<0)throw Error('Invalid '+k);
  if(p.readBytesPerSecond<65536||p.readBytesPerSecond>64*1024**2||p.cleanupBatch<1||p.cleanupBatch>20||p.maxDiskBytes!==null&&(!Number.isSafeInteger(p.maxDiskBytes)||p.maxDiskBytes<1))throw Error('Invalid PCR resource limit');return p;
 }
-export function createPcrBackground(data:string,folders:()=>string[],trace:(event:string,detail:unknown)=>void,deps:{now?:()=>number;free?:()=>Promise<number>;busy?:()=>boolean}={}){
+export function createPcrBackground(data:string,folders:()=>string[],trace:(event:string,detail:unknown)=>void,deps:{now?:()=>number;free?:()=>Promise<number>;busy?:()=>boolean;metadata?:(source:string,options:{background:true;bytesPerSecond:number})=>Promise<void>}={}){
  data=path.resolve(data);const cacheDir=path.join(data,'pcr-cache'),policyFile=path.join(data,'pcr-cache-policy.json'),now=deps.now??Date.now;
  let configuration:Promise<unknown>=Promise.resolve();let opening:Promise<void>|undefined;let db:DatabaseSync|undefined,policy={...DEFAULT_PCR_POLICY},timer:ReturnType<typeof setTimeout>|undefined,maintenance:Promise<void>|undefined,generation:Promise<void>|undefined;
  let closed=false,started=false,pending:RecordingInventory|undefined,lastMedia=now(),lastSpaceCheck=0,lastError:string|null=null,freeBytes:number|null=null,reason='starting',cleanupHold:string|null=null;
- const counters={success:0,failed:0,deferred:0,cleaned:0,scans:0,initialInventoryFiles:0};
+ const counters={success:0,failed:0,deferred:0,metadataSuccess:0,metadataFailed:0,metadataDeferred:0,cleaned:0,scans:0,initialInventoryFiles:0};
  async function initialize(){
   if(db)return;await fs.mkdir(data,{recursive:true});new DiagnosticLog(cacheDir).assertSeparate(folders());
   try{policy=validatePcrPolicy(JSON.parse(await fs.readFile(policyFile,'utf8')));}catch(e:any){if(e.code!=='ENOENT')throw e;}
@@ -32,6 +32,10 @@ export function createPcrBackground(data:string,folders:()=>string[],trace:(even
    CREATE TABLE IF NOT EXISTS pcr_roots(path_key TEXT PRIMARY KEY,source TEXT NOT NULL,identity TEXT,last_complete REAL,blocked TEXT);
    CREATE TABLE IF NOT EXISTS pcr_files(name TEXT PRIMARY KEY,bytes INTEGER NOT NULL,source_key TEXT,cache_key TEXT,valid INTEGER NOT NULL DEFAULT 0);
    UPDATE pcr_sources SET state='pending' WHERE state IN ('building','ready');`);
+  const columns=new Set((db.prepare('PRAGMA table_info(pcr_sources)').all() as any[]).map(c=>c.name));
+  for(const [name,type]of [['metadata_state','TEXT'],['metadata_retry_at','INTEGER NOT NULL DEFAULT 0'],['metadata_error','TEXT']])if(!columns.has(name))db.exec(`ALTER TABLE pcr_sources ADD COLUMN ${name} ${type}`);
+  // Validate the existing metadata schema/fingerprint lazily, one row at a time.
+  db.exec('UPDATE pcr_sources SET metadata_state=NULL,metadata_retry_at=0,metadata_error=NULL');
   // One bounded-metadata directory reconciliation at startup, never per Browse/UI.
   const seen=new Set<string>();for(const name of await fs.readdir(cacheDir).catch(e=>{if(e.code==='ENOENT')return [];throw e;})){
    if(!/^[a-f0-9]{64}\.json(?:\.[a-f0-9-]+\.tmp)?$/.test(name))continue;
@@ -62,6 +66,7 @@ export function createPcrBackground(data:string,folders:()=>string[],trace:(even
      ON CONFLICT(path_key) DO UPDATE SET root=excluded.root,size=excluded.size,mtime=excluded.mtime,fingerprint=excluded.fingerprint,state=excluded.state,stable_since=excluded.stable_since,observations=excluded.observations,last_seen=excluded.last_seen,missing_since=NULL,missing_count=0,retry_at=CASE WHEN pcr_sources.fingerprint=excluded.fingerprint THEN pcr_sources.retry_at ELSE 0 END,error=CASE WHEN pcr_sources.fingerprint=excluded.fingerprint THEN pcr_sources.error ELSE NULL END`)
      .run(key,old?.source??path.resolve(file),sourcePathKey(root),stat.size,stat.mtimeMs,fingerprint,changed||['missing','detached'].includes(old?.state)?'pending':old.state,changed?now():old.stable_since,changed?1:old.observations+1,serial,name);
     db!.prepare('UPDATE pcr_files SET source_key=? WHERE name=?').run(key,name);
+    if(changed)db!.prepare('UPDATE pcr_sources SET metadata_state=NULL,metadata_retry_at=0,metadata_error=NULL WHERE path_key=?').run(key);
    }
    for(const old of db!.prepare('SELECT * FROM pcr_sources WHERE last_seen<>?').all(serial) as any[]){
     const current=roots.some(r=>sourcePathKey(r)===old.root),root=db!.prepare('SELECT blocked FROM pcr_roots WHERE path_key=?').get(old.root) as any;
@@ -85,8 +90,22 @@ export function createPcrBackground(data:string,folders:()=>string[],trace:(even
    db!.prepare("UPDATE pcr_sources SET state=?,cache_key=?,cache_bytes=?,error=NULL,retry_at=0 WHERE path_key=? AND fingerprint=? AND state IN ('building','ready')").run(index?'ready':'unsupported',row.fingerprint,cache?.bytes??0,row.path_key,row.fingerprint);
    if(cache)db!.prepare('INSERT INTO pcr_files(name,bytes,source_key,cache_key,valid) VALUES(?,?,?,?,1) ON CONFLICT(name) DO UPDATE SET bytes=excluded.bytes,source_key=excluded.source_key,cache_key=excluded.cache_key,valid=1').run(row.cache_name,cache.bytes,row.path_key,row.fingerprint);
    counters.success++;trace('PCR_BACKGROUND_COMPLETE',{source:row.source,valid:!!index});
+   if(deps.metadata)await generateMetadata(row);
   }catch(e){const deferred=e instanceof PcrDeferred||(e as Error).name==='AbortError';if(deferred)counters.deferred++;else counters.failed++;
    db!.prepare("UPDATE pcr_sources SET state=?,error=?,retry_at=? WHERE path_key=? AND fingerprint=? AND state IN ('building','ready')").run(deferred?'pending':'failed',String(e),now()+(deferred?5000:60000),row.path_key,row.fingerprint);trace('PCR_BACKGROUND_DEFERRED',{source:row.source,error:String(e),deferred});
+   if(deps.metadata&&e instanceof PcrDeferred&&e.reason==='source-changed')db!.prepare('UPDATE pcr_sources SET observations=1,stable_since=? WHERE path_key=?').run(now(),row.path_key);
+  }
+ }
+ async function generateMetadata(row:any){
+  try{
+   if(pcrWork.busy()||deps.busy?.())throw new PcrDeferred('playback');
+   const st=await fs.stat(row.source);if(`${st.size}:${st.mtimeMs}`!==row.fingerprint)throw new PcrDeferred('source-changed');
+   await deps.metadata!(row.source,{background:true,bytesPerSecond:policy.readBytesPerSecond});
+   db!.prepare("UPDATE pcr_sources SET metadata_state='ready',metadata_retry_at=0,metadata_error=NULL WHERE path_key=? AND fingerprint=?").run(row.path_key,row.fingerprint);counters.metadataSuccess++;
+  }catch(e){const deferred=e instanceof PcrDeferred||(e as Error).name==='AbortError';if(deferred)counters.metadataDeferred++;else counters.metadataFailed++;
+   db!.prepare("UPDATE pcr_sources SET metadata_state='pending',metadata_retry_at=?,metadata_error=? WHERE path_key=? AND fingerprint=?").run(now()+(deferred?5000:60000),String(e),row.path_key,row.fingerprint);
+   if(e instanceof PcrDeferred&&e.reason==='source-changed')db!.prepare("UPDATE pcr_sources SET state='pending',observations=1,stable_since=? WHERE path_key=?").run(now(),row.path_key);
+   trace('RECORDING_METADATA_DEFERRED',{source:row.source,deferred,error:String(e)});
   }
  }
  async function cleanup(){
@@ -124,8 +143,19 @@ export function createPcrBackground(data:string,folders:()=>string[],trace:(even
   await cleanup();
   if(policy.maxDiskBytes!==null&&Number((db!.prepare('SELECT coalesce(sum(bytes),0) bytes FROM pcr_files').get() as any).bytes)>=policy.maxDiskBytes){reason='capacity-limit';return;}
   if(generation){reason='generating';return;}
+  // A stable startup inventory must not wait for the next (possibly 30 minute)
+  // directory scan. Confirm at most one source stat per cycle after settling.
+  if(deps.metadata){const candidate=db!.prepare("SELECT s.* FROM pcr_sources s JOIN pcr_roots r ON r.path_key=s.root WHERE s.state='pending' AND s.observations<2 AND s.retry_at<=? AND s.stable_since<=? AND s.mtime<=? AND r.blocked IS NULL ORDER BY s.retry_at,s.path_key LIMIT 1").get(now(),now()-policy.settleMs,now()-policy.settleMs) as any;
+   if(candidate)try{const s=await fs.stat(candidate.source);if(`${s.size}:${s.mtimeMs}`===candidate.fingerprint)db!.prepare('UPDATE pcr_sources SET observations=2 WHERE path_key=?').run(candidate.path_key);
+    else db!.prepare('UPDATE pcr_sources SET size=?,mtime=?,fingerprint=?,stable_since=?,retry_at=?,observations=1 WHERE path_key=?').run(s.size,s.mtimeMs,`${s.size}:${s.mtimeMs}`,now(),now()+policy.settleMs,candidate.path_key);
+   }catch(e:any){db!.prepare("UPDATE pcr_sources SET state=?,retry_at=?,error=? WHERE path_key=?").run(e.code==='ENOENT'?'missing':'pending',now()+60000,String(e),candidate.path_key);}
+  }
   const row=db!.prepare("SELECT s.* FROM pcr_sources s LEFT JOIN pcr_roots r ON r.path_key=s.root WHERE s.state IN ('pending','failed') AND s.retry_at<=? AND r.blocked IS NULL AND ((s.observations>=2 AND s.stable_since<=? AND s.mtime<=?) OR EXISTS(SELECT 1 FROM pcr_files f WHERE f.name=s.cache_name)) ORDER BY s.retry_at,s.path_key LIMIT 1").get(now(),now()-policy.settleMs,now()-policy.settleMs) as any;
-  if(!row){reason='settling-or-complete';return;}reason='generating';generation=generate(row).finally(()=>{generation=undefined;});
+  if(!row){
+   const metadata=deps.metadata&&db!.prepare("SELECT s.* FROM pcr_sources s LEFT JOIN pcr_roots r ON r.path_key=s.root WHERE s.state IN ('ready','unsupported') AND coalesce(s.metadata_state,'pending')='pending' AND s.metadata_retry_at<=? AND r.blocked IS NULL ORDER BY s.metadata_retry_at,s.path_key LIMIT 1").get(now()) as any;
+   if(metadata){reason='metadata';generation=generateMetadata(metadata).finally(()=>{generation=undefined;});return;}
+   reason='settling-or-complete';return;
+  }reason='generating';generation=generate(row).finally(()=>{generation=undefined;});
  }
  function run(){if(maintenance)return maintenance;maintenance=cycle().catch(e=>{lastError=String(e);reason='error';trace('PCR_BACKGROUND_ERROR',{error:String(e)});}).finally(()=>{maintenance=undefined;});return maintenance;}
  async function tick(){await run();if(!closed){timer=setTimeout(tick,1000);timer.unref();}}

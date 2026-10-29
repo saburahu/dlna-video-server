@@ -3,6 +3,9 @@ import path from 'node:path';
 import { createHash, randomUUID } from 'node:crypto';
 import { DiagnosticLog } from './diagnostic-log.js';
 import type { scanRecordingEit } from './eit-scanner.js';
+import type {EitScanOptions} from './eit-scanner.js';
+import {PcrDeferred} from './pcr-work.js';
+import type {RecordingRange} from './recording-si.js';
 
 export type MetadataState = 'pending' | 'confirmed' | 'uncertain' | 'no-eit' | 'error';
 export interface RecordingMetadata {
@@ -11,20 +14,27 @@ export interface RecordingMetadata {
   startTime?: string; durationSeconds?: number; genre?: number[];
   textSuspect?: boolean; selectionProvisional?: boolean; candidateCount?: number;
   method?: 'reservation' | 'full-clock-overlap';
+  station?:string;transportStreamId?:number;originalNetworkId?:number;
+  recordingRange?:RecordingRange;
 }
 export type EitScan = Awaited<ReturnType<typeof scanRecordingEit>>;
-export type ScanStrategy = (file: string) => Promise<EitScan>;
-const fullScan: ScanStrategy = async file => (await import('./eit-scanner.js')).scanRecordingEit(file);
+export type ScanStrategy = (file: string,options?:EitScanOptions) => Promise<EitScan>;
+const fullScan: ScanStrategy = async (file,options) => (await import('./eit-scanner.js')).scanRecordingEit(file,options);
 const digest = (s: string) => createHash('sha256').update(s).digest('hex');
 const text = (s: unknown): s is string => typeof s === 'string' && s.length <= 8192 && !/[\u0000-\u0008\u000b\u000c\u000e-\u001f\ufffd]/u.test(s);
 export function validMetadata(m: unknown): m is RecordingMetadata {
   if (!m || typeof m !== 'object') return false;
   const v = m as RecordingMetadata;
   if (!['pending','confirmed','uncertain','no-eit','error'].includes(v.state)) return false;
-  if (['title','description','reason'].some(k => (v as any)[k] !== undefined && !text((v as any)[k]))) return false;
+  if (['title','description','reason','station'].some(k => (v as any)[k] !== undefined && !text((v as any)[k]))) return false;
   if (v.startTime !== undefined && (typeof v.startTime !== 'string' || !Number.isFinite(Date.parse(v.startTime)))) return false;
   if (v.scannedAt !== undefined && !Number.isFinite(Date.parse(v.scannedAt))) return false;
-  if (['serviceId','eventId'].some(k => (v as any)[k] !== undefined && (!Number.isInteger((v as any)[k]) || (v as any)[k] < 0 || (v as any)[k] > 65535))) return false;
+  if (['serviceId','eventId','transportStreamId','originalNetworkId'].some(k => (v as any)[k] !== undefined && (!Number.isInteger((v as any)[k]) || (v as any)[k] < 0 || (v as any)[k] > 65535))) return false;
+  if(v.recordingRange!==undefined){const r=v.recordingRange;
+    if(!r||r.basis!=='tot-pcr-transport'||!['consistent','missing','insufficient','discontinuous','inconsistent'].includes(r.state)||!Number.isSafeInteger(r.anchorCount)||r.anchorCount<0||!Number.isSafeInteger(r.segments)||r.segments<0)return false;
+    if(r.spreadMs!==undefined&&(!Number.isFinite(r.spreadMs)||r.spreadMs<0))return false;
+    if(r.state==='consistent'&&(typeof r.startTime!=='string'||typeof r.endTime!=='string'||!Number.isFinite(Date.parse(r.startTime))||!Number.isFinite(Date.parse(r.endTime))||r.durationSeconds===undefined||!Number.isFinite(r.durationSeconds)||r.durationSeconds<=0||Math.abs(Date.parse(r.endTime)-Date.parse(r.startTime)-r.durationSeconds*1000)>1||r.uncertaintySeconds!==1||r.segments!==1||r.anchorCount<3||r.spreadMs===undefined||r.spreadMs>250))return false;
+  }
   if (v.durationSeconds !== undefined && (!Number.isFinite(v.durationSeconds) || v.durationSeconds < 0)) return false;
   if (v.retryAfter !== undefined && !Number.isFinite(v.retryAfter)) return false;
   if (v.genre !== undefined && (!Array.isArray(v.genre) || !v.genre.every(n => Number.isInteger(n) && n >= 0 && n <= 255))) return false;
@@ -32,8 +42,15 @@ export function validMetadata(m: unknown): m is RecordingMetadata {
 }
 const genreNames = ['ニュース／報道','スポーツ','情報／ワイドショー','ドラマ','音楽','バラエティ','映画','アニメ／特撮','ドキュメンタリー／教養','劇場／公演','趣味／教育','福祉'];
 export function metadataDisplay(p: {title: string; modified: string; genre?: string; metadata?: unknown}) {
-  const m = validMetadata(p.metadata) && p.metadata.state === 'confirmed' ? p.metadata : undefined;
-  return { title: m?.title?.trim() || p.title, description: m?.description || '', date: m?.startTime || p.modified,
+  const valid=validMetadata(p.metadata)?p.metadata:undefined;
+  const m = valid?.state === 'confirmed' ? valid : undefined;
+  const end=m?.startTime&&m.durationSeconds!==undefined?Date.parse(m.startTime)+m.durationSeconds*1000:NaN;
+  const scheduledEnd=Number.isFinite(end)&&Math.abs(end)<=8.64e15?new Date(end).toISOString():undefined;
+  const range=valid?.recordingRange;
+  const jst=(s:string)=>{const d=new Date(Date.parse(s)+9*3600000);return Number.isFinite(d.getTime())?d.toISOString().slice(0,19).replace('T',' ')+' JST':s;};
+  const recording=range?.state==='consistent'?`録画範囲（TOT/PCR推定・TS輸送時刻、絶対精度未校正）: ${jst(range.startTime!)} ～ ${jst(range.endTime!)}。時刻分解能の目安1秒。`:'';
+  return { title: m?.title?.trim() || p.title, description: [m?.description,recording].filter(Boolean).join('\n'), date: m?.startTime || p.modified,
+    scheduledStartTime:scheduledEnd?m?.startTime:undefined,scheduledEndTime:scheduledEnd,
     genre: m?.genre?.map(n => genreNames[n >> 4] ?? 'その他').filter((v,i,a) => a.indexOf(v) === i).join('、') || p.genre || '' };
 }
 export function summarizeEit(scan: EitScan): RecordingMetadata {
@@ -45,9 +62,14 @@ export function summarizeEit(scan: EitScan): RecordingMetadata {
   const reservation = scan.selection?.reason === 'reservation';
   const dominant = scan.selection?.reason === 'recording-overlap' && scan.clockValid && scan.recordingStartTimeMs !== null && scan.durationSeconds !== null && (primary?.overlapSeconds ?? 0) > scan.durationSeconds / 2;
   const confirmed = scan.complete && !!event && !!primary && primary.startTimeMs !== null && primary.durationSeconds !== null && (reservation || dominant);
+  const serviceId=primary?.serviceId??scan.serviceId;
+  const stations=(scan.services??[]).filter(s=>scan.complete&&scan.patServices?.includes(s.serviceId)&&s.serviceId===serviceId&&s.transportStreamId===scan.transportStreamId&&(primary?.transportStreamId===undefined||primary.transportStreamId===s.transportStreamId)&&(primary?.originalNetworkId===undefined||s.originalNetworkId===primary.originalNetworkId));
+  const station=stations.length===1&&!stations[0].textSuspect&&text(stations[0].name)?stations[0]:undefined;
   return { state: !scan.counters.eitSections ? (scan.counters.eitPackets && scan.counters.invalidSections ? 'error' : 'no-eit') : confirmed ? 'confirmed' : 'uncertain',
     scannedAt: new Date().toISOString(), reason: scan.selection?.reason ?? 'no-recording-clock',
     selectionProvisional: scan.selection?.provisional, candidateCount: scan.selection?.candidates.length ?? 0,
+    ...(station&&{station:station.name,serviceId:station.serviceId,transportStreamId:station.transportStreamId,originalNetworkId:station.originalNetworkId}),
+    ...(scan.recordingRange&&{recordingRange:scan.recordingRange}),
     ...(primary && {serviceId: primary.serviceId, eventId: primary.eventId,
       ...(primary.startTimeMs !== null && {startTime: new Date(primary.startTimeMs).toISOString()}),
       ...(primary.durationSeconds !== null && {durationSeconds: primary.durationSeconds})}),
@@ -58,46 +80,51 @@ export function summarizeEit(scan: EitScan): RecordingMetadata {
 
 const MAX_CACHE_BYTES = 64 * 1024;
 const QUIET_MS = 120_000, RETRY_MS = 300_000;
-interface CacheRecord {version: number; source: string; size: number; mtimeMs: number; metadata: RecordingMetadata; sha256: string}
+interface CacheRecord {version: number; source: string; identity?:string; size: number; mtimeMs: number; metadata: RecordingMetadata; sha256: string}
 export class RecordingMetadataCache {
   private jobs = new Map<string, Promise<{metadata: RecordingMetadata; cached: boolean}>>();
   constructor(readonly directory = path.resolve(process.env.PT3_DATA_DIR || 'data', 'eit-cache'), private strategy: ScanStrategy = fullScan, private folders: string[] = []) {}
-  private filename(source: string) { return path.join(this.directory, digest(path.resolve(source)) + '.json'); }
+  private async identity(source:string){const s=await fs.stat(source,{bigint:true});return s.ino?`${s.dev}:${s.ino}:${s.birthtimeNs}`:await fs.realpath(source);}
+  private async filename(source: string) { return path.join(this.directory, digest(await this.identity(source)) + '.json'); }
   private separate(source: string) { new DiagnosticLog(this.directory).assertSeparate([...this.folders, path.dirname(path.resolve(source))]); }
   private async record(source: string): Promise<CacheRecord | undefined> {
-    try { this.separate(source); const file = this.filename(source); if ((await fs.stat(file)).size > MAX_CACHE_BYTES) return;
+    try { this.separate(source); const identity=await this.identity(source);let file = await this.filename(source);
+      try{await fs.stat(file);}catch(e:any){if(e.code!=='ENOENT')throw e;file=path.join(this.directory,digest(path.resolve(source))+'.json');}
+      if ((await fs.stat(file)).size > MAX_CACHE_BYTES) return;
       const r = JSON.parse(await fs.readFile(file, 'utf8')) as CacheRecord;
-      if (r.version === 1 && r.source === path.resolve(source) && Number.isFinite(r.size) && Number.isFinite(r.mtimeMs) && validMetadata(r.metadata) && r.sha256 === digest(JSON.stringify(r.metadata))) return r;
+      if ((r.version===2&&r.identity===identity||r.version===1&&r.source===path.resolve(source)) && Number.isFinite(r.size) && Number.isFinite(r.mtimeMs) && validMetadata(r.metadata) && r.sha256 === digest(JSON.stringify(r.metadata))) return r;
     } catch {} return;
   }
   /** Only stat + small JSON: never invokes the scan strategy. */
   async lookup(source: string): Promise<RecordingMetadata> {
     try { const r = await this.record(source), st = await fs.stat(source);
-      if (r && r.size === st.size && r.mtimeMs === st.mtimeMs) return r.metadata;
+      if (r && r.size === st.size && r.mtimeMs === st.mtimeMs) return r.version===2?r.metadata:{state:'pending',reason:'schema-upgrade'};
       return {state:'pending', reason:r ? 'file-changed' : 'not-scanned'};
     } catch { return {state:'error',reason:'file-unavailable'}; }
   }
-  async analyze(source: string, retry = false) {
+  async analyze(source: string, retry = false,options:EitScanOptions={}) {
     source = path.resolve(source);
-    const existing = this.jobs.get(source); if (existing) return existing;
-    const job = this.analyzeOnce(source,retry); this.jobs.set(source,job);
-    try {return await job;} finally {this.jobs.delete(source);}
+    const identity=await this.identity(source),existing = this.jobs.get(identity); if (existing) return existing;
+    // One complete read/summary/atomic-write transaction per physical file,
+    // including concurrent aliases; coalescing the scan alone races Windows rename.
+    const job = this.analyzeOnce(source,retry,options); this.jobs.set(identity,job);
+    try {return await job;} finally {this.jobs.delete(identity);}
   }
-  private async analyzeOnce(source: string, retry: boolean) {
+  private async analyzeOnce(source: string, retry: boolean,options:EitScanOptions) {
     this.separate(source);
-    const before = await fs.stat(source), r = await this.record(source), now = Date.now();
-    if (r?.metadata.state === 'pending' && (r.metadata.retryAfter ?? 0) > now) return {metadata:{state:'pending',reason:'waiting-for-stable-file',retryAfter:r.metadata.retryAfter} as RecordingMetadata,cached:true};
-    if (r && r.size === before.size && r.mtimeMs === before.mtimeMs && r.metadata.state !== 'pending' && (!retry || r.metadata.state === 'confirmed')) return {metadata:r.metadata,cached:true};
+    const before = await fs.stat(source), identity=await this.identity(source),r = await this.record(source), now = Date.now();
+    if (r?.version===2&&r.metadata.state === 'pending' && (r.metadata.retryAfter ?? 0) > now) return {metadata:{state:'pending',reason:'waiting-for-stable-file',retryAfter:r.metadata.retryAfter} as RecordingMetadata,cached:true};
+    if (r?.version===2 && r.size === before.size && r.mtimeMs === before.mtimeMs && r.metadata.state !== 'pending' && (!retry || r.metadata.state === 'confirmed')) return {metadata:r.metadata,cached:true};
     let metadata: RecordingMetadata;
     if (now - before.mtimeMs < QUIET_MS) metadata = {state:'pending',reason:'recently-modified',retryAfter:now+RETRY_MS};
-    else try {metadata = summarizeEit(await this.strategy(source));}
-    catch(e) {metadata = {state:'error',scannedAt:new Date().toISOString(),reason:String(e).slice(0,8192).replace(/[\u0000-\u001f\ufffd]/g,' ')};}
+    else try {metadata=summarizeEit(await this.strategy(source,options));}
+    catch(e) {if(e instanceof PcrDeferred||(e as Error).name==='AbortError')throw e;metadata = {state:'error',scannedAt:new Date().toISOString(),reason:String(e).slice(0,8192).replace(/[\u0000-\u001f\ufffd]/g,' ')};}
     const after = await fs.stat(source);
-    if (before.size !== after.size || before.mtimeMs !== after.mtimeMs) metadata = {state:'pending',reason:'changed-during-scan',retryAfter:Date.now()+RETRY_MS};
-    const record:CacheRecord = {version:1,source,size:after.size,mtimeMs:after.mtimeMs,metadata,sha256:digest(JSON.stringify(metadata))};
+    if (before.size !== after.size || before.mtimeMs !== after.mtimeMs||identity!==await this.identity(source)) metadata = {state:'pending',reason:'changed-during-scan',retryAfter:Date.now()+RETRY_MS};
+    const record:CacheRecord = {version:2,source,identity:await this.identity(source),size:after.size,mtimeMs:after.mtimeMs,metadata,sha256:digest(JSON.stringify(metadata))};
     await fs.mkdir(this.directory,{recursive:true});this.separate(source);
-    const temporary = this.filename(source)+'.'+randomUUID()+'.tmp';
-    try {await fs.writeFile(temporary,JSON.stringify(record));await fs.rename(temporary,this.filename(source));}
+    const filename=await this.filename(source),temporary = filename+'.'+randomUUID()+'.tmp';
+    try {await fs.writeFile(temporary,JSON.stringify(record));await fs.rename(temporary,filename);}
     finally {await fs.unlink(temporary).catch(()=>{});}
     return {metadata,cached:false};
   }
