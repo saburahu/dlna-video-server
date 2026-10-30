@@ -9,7 +9,7 @@ import {aribDate,sectionCrc} from './arib-metadata.js';
 import {EitObservation,ReservationEvent,selectRecordingEvent} from './recording-event.js';
 import {pcrWork,PcrDeferred,type PcrWorkControl} from './pcr-work.js';
 import type {PcrIndex} from './core.js';
-import {parseSdt,recordingRange,recordingOrigin,type BroadcastService,type TimeAnchor} from './recording-si.js';
+import {parseSdt,parseNit,recordingRange,recordingOrigin,type BroadcastService,type NitTransport,type TimeAnchor} from './recording-si.js';
 
 export interface EitScanOptions {
   serviceId?: number; reservation?: ReservationEvent;
@@ -34,7 +34,7 @@ async function scan(filePath:string,options:EitScanOptions,control?:PcrWorkContr
   const clockValid=!!index && !index.discontinuities && !index.invalidIntervals;
   const seconds=(packet:number)=>clockValid?packetTime(index!,packet):null;
   const observations:EitObservation[]=[],anchors:{packet:number;startTimeMs:number}[]=[];
-  const timeAnchors:TimeAnchor[]=[],services=new Map<string,BroadcastService>();
+  const timeAnchors:TimeAnchor[]=[],services=new Map<string,BroadcastService>(),networks=new Map<string,NitTransport>();
   const records=new Map<string,{
     serviceId:number;eventId:number;transportStreamId:number;originalNetworkId:number;startTimeMs:number|null;
     count:number;firstPacket:number;lastPacket:number;firstSeconds:number|null;lastSeconds:number|null;
@@ -47,7 +47,7 @@ async function scan(filePath:string,options:EitScanOptions,control?:PcrWorkContr
   if(options.maxBytes!==undefined&&(!Number.isFinite(options.maxBytes)||options.maxBytes<=0))throw new Error('Invalid scan limit');
   if(options.startByte!==undefined&&(!Number.isFinite(options.startByte)||options.startByte<0||options.startByte>=before.size))throw new Error('Invalid scan start');
   if(options.serviceId!==undefined&&(!Number.isInteger(options.serviceId)||options.serviceId<0||options.serviceId>65535))throw new Error('Invalid service ID');
-  const assemblers=new Map([...new Set([0,0x11,0x14,...pids])].map(p=>[p,new SectionAssembler()]));
+  const assemblers=new Map([...new Set([0,0x10,0x11,0x14,...pids])].map(p=>[p,new SectionAssembler()]));
   const counters={eitPackets:0,eitSections:0,invalidSections:0,syncErrors:0,tableIds:{} as Record<string,number>,unclassifiedPfSections:0,nextSections:0};
   let patTsid:number|undefined,updateCount=0,scopeConsistent=true;
   const fingerprints=new Map<string,string>();
@@ -57,6 +57,8 @@ async function scan(filePath:string,options:EitScanOptions,control?:PcrWorkContr
         if(s.length<12 || sectionCrc(s)!==0 || !(s[5]&1))return;
         const tsid=s.readUInt16BE(3);if(patTsid!==undefined&&patTsid!==tsid)scopeConsistent=false;patTsid=tsid;
         for(let n=8;n<s.length-4;n+=4){if(n+4>s.length-4)throw new Error('Malformed PAT');const id=s.readUInt16BE(n);if(id)pat.set(id,((s[n+2]&31)<<8)+s[n+3]);}
+      }else if(pid===0x10){
+        for(const network of parseNit(s)){if(networks.size>=4096)throw Error('NIT transport limit exceeded');networks.set(JSON.stringify(network),network);}
       }else if(pid===0x11){
         for(const service of parseSdt(s)){if(services.size>=4096)throw Error('SDT service limit exceeded');services.set(JSON.stringify(service),service);}
       }else if(pid===0x14&&s[0]===0x73){
@@ -125,7 +127,7 @@ async function scan(filePath:string,options:EitScanOptions,control?:PcrWorkContr
   return {complete,readBytes,packetCount:packet-firstPacket,firstPacket,endPacket:packet,packetSize:size,trailingBytes:pending.length,
     elapsedMs:performance.now()-started,indexMs,clockValid,durationSeconds:duration,recordingStartTimeMs:recordingStartTimeMs??null,
     timeAnchorCount:anchors.length,timeAnchorSpreadMs:spread,serviceId:serviceId??null,patServices:[...pat.keys()],
-    transportStreamId:patTsid,scopeConsistent,services:[...services.values()],recordingRange:range,
+    transportStreamId:patTsid,scopeConsistent,services:[...services.values()],networks:[...networks.values()],recordingRange:range,
     recordingOrigin:firstPacket===0&&(complete||clockValid&&seconds(packet)!>=20)?recordingOrigin(timeAnchors,clockValid&&scopeConsistent&&pat.size===1):{version:1 as const,basis:'tot-pcr-prefix' as const,state:'unavailable' as const,anchors:0,reason:'initial-window-not-observed'},
     counters,assembly:Object.fromEntries([...assemblers].map(([p,a])=>[p,a.stats])),records:[...records.values()],selection};
 }

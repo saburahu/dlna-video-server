@@ -118,15 +118,18 @@ export function browsePrograms(objectId: string, start: number, count: number, a
 }
 function item(p: Program, baseUrl: string, profile: Profile, resource?: MediaResource) {
   const display = metadataDisplay(p);
+  const channel=display.channelInfo;
+  const broadcast=channel?`<arib:objectType>${escapeXml(channel.objectType!)}</arib:objectType>${channel.channelNr!==undefined?`<upnp:channelNr>${channel.channelNr}</upnp:channelNr>`:""}`:"";
+  const arib=channel?` xmlns:arib="urn:schemas-arib-or-jp:elements-1-0/"`:"";
   const schedule=display.scheduledStartTime&&display.scheduledEndTime?`<upnp:scheduledStartTime>${escapeXml(display.scheduledStartTime)}</upnp:scheduledStartTime><upnp:scheduledEndTime>${escapeXml(display.scheduledEndTime)}</upnp:scheduledEndTime>`:'';
-  if(resource?.unavailable) return `<item id="item:${p.id}" parentID="all" restricted="1"><dc:title>${escapeXml(display.title)}</dc:title><upnp:class>${profile.itemClass}</upnp:class></item>`;
+  if(resource?.unavailable) return `<item id="item:${p.id}" parentID="all" restricted="1"${arib}><dc:title>${escapeXml(display.title)}</dc:title><upnp:class>${profile.itemClass}</upnp:class></item>`;
   const url = resource?.url ?? `${baseUrl}/media/${p.id}/${encodeURIComponent(p.title)}.ts`;
   const size = resource ? resource.size : mediaSize(p.size, profile);
   profile = resource?.profile ?? profile;
   const duration=resource?.durationSeconds??p.duration;
   const preciseMs=resource?.durationSeconds===undefined?undefined:Math.round(resource.durationSeconds*1000);
   const durationText=preciseMs===undefined?formatDuration(duration):formatDuration(preciseMs/1000).replace(/\.000$/,'.'+String(preciseMs%1000).padStart(3,'0'));
-  return `<item id="item:${p.id}" parentID="all" restricted="1"><dc:title>${escapeXml(display.title)}</dc:title><upnp:class>${profile.itemClass}</upnp:class>${display.date?`<dc:date>${escapeXml(display.date)}</dc:date>`:''}${schedule}${display.description ? `<dc:description>${escapeXml(display.description)}</dc:description>` : ""}${display.genre ? `<upnp:genre>${escapeXml(display.genre)}</upnp:genre>` : ""}${p.station ? `<upnp:channelName>${escapeXml(p.station)}</upnp:channelName>` : ""}<res protocolInfo="${escapeXml(protocolInfo(profile))}"${size!==undefined?` size="${size}"`:''}${duration ? ` duration="${durationText}"` : ""}>${escapeXml(url)}</res></item>`;
+  return `<item id="item:${p.id}" parentID="all" restricted="1"${arib}><dc:title>${escapeXml(display.title)}</dc:title><upnp:class>${profile.itemClass}</upnp:class>${display.date?`<dc:date>${escapeXml(display.date)}</dc:date>`:''}${schedule}${broadcast}${display.description ? `<dc:description>${escapeXml(display.description)}</dc:description>` : ""}${display.genre ? `<upnp:genre>${escapeXml(display.genre)}</upnp:genre>` : ""}${p.station ? `<upnp:channelName>${escapeXml(p.station)}</upnp:channelName>` : ""}<res protocolInfo="${escapeXml(protocolInfo(profile))}"${size!==undefined?` size="${size}"`:''}${duration ? ` duration="${durationText}"` : ""}>${escapeXml(url)}</res></item>`;
 }
 export function browseDIDL(objectId: string, start: number, count: number, all: Program[], baseUrl: string, profile: Profile, metadata = false, resources: ReadonlyMap<string, MediaResource> = new Map(), virtualize=true): {didl:string;numberReturned:number;total:number;position?:number} {
   if(virtualize){const projection=new VirtualChildren('all',0,all.filter(p=>p.published).length),parsed=parseVirtual(objectId);

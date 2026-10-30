@@ -5,7 +5,7 @@
 ## 既存機構への追加
 
 - EITの主番組選定、ARIB文字デコード、section assembler/CRC、PCR索引、RecordingMetadataCache、Program.station、通常DIDLを再利用。
-- SDTはcurrent/actual-TSだけを扱い、PATのサービスとTSID、選定eventのONID等を照合します。局名が複数・矛盾・不明なら埋めません。channelNrの生成は未実装です。
+- SDTはcurrent/actual-TSだけを扱い、PATのサービスとTSID、選定eventのONID等を照合します。局名が複数・矛盾・不明なら埋めません。channelNrとARIB放送種別は、下記の照合済みNIT/SDT規則に基づき通知します。
 - `startTime`と`durationSeconds`は従来どおりEIT番組予定。`recordingRange`は別のTOT/PCR輸送時間軸の推定です。最初／最後の表示フレーム時刻ではありません。
 - 新規項目: station、transportStreamId、originalNetworkId、recordingRange（state/basis/segments/anchorCount/spreadMsと、条件成立時だけstartTime/endTime/durationSeconds/uncertaintySeconds）。全TOT標本はキャッシュへ保存しません。
 
@@ -43,6 +43,8 @@ PCRラップは既存索引で展開します。PCR不連続／異常interval、
 |---|---|
 | dc:title / genre | 既存confirmed判定による番組名等。未確認なら従来fallback |
 | dc:date | confirmed録画の先頭時計（recordingOrigin、または既存のconsistent録画範囲のstart）。明示JST +09:00。番組予定でNPT0を代用せず、録画原点を得られないconfirmed項目では省略。未確定metadataの従来fallbackは維持 |
+| upnp:channelNr | NIT/SDTを照合してARIB式で生成。不明な番号は省略 |
+| arib:objectType | 照合できた放送種別ARIB_TB/BS/CS。REGZA固有IDは付加しない |
 | upnp:channelName | 照合できたSDT局名をProgram.station経由で通知。既存の外部設定値は保持 |
 | upnp:scheduledStartTime / scheduledEndTime | confirmedのEIT番組予定。録画前後マージンを加算しない |
 | dc:description | 既存番組説明に、条件を満たした録画範囲を「TOT/PCR推定・TS輸送時刻・絶対精度未校正」と明示して追加。JST秒表示 |
@@ -54,7 +56,7 @@ scheduledStart/EndとchannelNameは[ContentDirectory:1](https://upnp.org/specs/a
 
 ## リリース前に必要な確認
 
-REGZA/DBRで、通常一覧／番組説明に局名と予定日時が表示されるか、JST解釈、録画範囲の説明表示を確認する必要があります。表示しない機器へ対応済みとは表現しません。地デジ／BSのchannelNr生成は、ARIB運用と規格の照合が済むまで保留します。全外字・DRCS、編集TSのsegment別時計、校正済み絶対精度は対応範囲外です。
+REGZA/DBRで、通常一覧／番組説明に局名と予定日時が表示されるか、JST解釈、録画範囲の説明表示を確認する必要があります。表示しない機器へ対応済みとは表現しません。受信機固有のワンタッチ再割当・枝番号は再現しません。全外字・DRCS、編集TSのsegment別時計、校正済み絶対精度は対応範囲外です。
 
 RC監査では、PATのTSID変更、存在しない日付・zone欠落、0秒予定区間を拒否する反証を追加しました。失敗上限状態は素材の更新まで保持します。cache破損は再起動または既存refreshの再読込でpendingとなり、低優先度で再構築します。同期Browseからの全編走査は行いません。
 
@@ -73,3 +75,20 @@ EIT予定開始は録画先頭ではありません。dc:dateを番組予定へ�
 1秒という時刻分解能の目安/絶対精度未校正は維持。これは最初の表示フレームの絶対時刻や、編集・放送時計飛び後も動的表示が正確なことの保証ではありません。新しい動的時計APIは追加せず、受信機がNPTへ加算する基準時刻を提供します。
 
 追加のWindows実測で、Stats.mtimeのDateとnew Date(Stats.mtimeMs)が丸め／切捨てにより1ms異なる場合も確認しました。公開照合は探索が保存するStats.mtimeそのものに統一し、mtimeMsから再構成しません。解析前後・cacheの厳密なsize/mtimeMs照合は維持。丸め方向の異なる合成条件と実ファイルの上側端数で、自動公開・重複更新抑止・1ms変更拒否を検証します。
+
+### TS由来のチャンネル通知（0.4.4開発候補）
+
+局名（upnp:channelName）に加えて、upnp:channelNrとarib:objectTypeを通知します。REGZA独自network_id/service_idは追加しません。名前・型番・ファイル名で局を決めず、CRCを検証したcurrent/actual NITのサービスリスト・伝送方式・TS情報と、既存SDT/PAT/EITのSID/TSID/ONIDを照合します。欠落・矛盾は推測せず省略します。
+
+地デジの3桁番号はサービスIDの種別bits7–8、サービス番号bits0–2とNITのremote_control_key_idから算出。DIDL番号はワンタッチ番号×10000＋3桁番号×10＋枝番号です。ワンタッチは放送の既定キーを使用し、枝は当サーバーで再割当を行わないため0とします。テレビ自身の地域設定・再割当と一致する保証はありません。BS/110度CSはNITのサービス番号を使用し、当サーバーには個別のワンタッチ割当がないため規定の未割当0を用います。したがって他DMSが独自割当を持つ場合は同じ形式でも数値は異なります。BSの局名からキーを推測する表は持ちません。
+
+ARIB_TBは地上伝送のNIT、ARIB_BS/ARIB_CSは衛星伝送と標準ONIDに基づき、確認された通常TVサービスへ通知。ARIB namespaceはitem内で宣言し、フォルダー／統合一覧へitemを移しても未定義prefixを生みません。confirmedメタデータでのみ追加属性を公開し、既存station、予定時刻、録画原点、res、ObjectIDは保持します。
+
+channelInfo version1は既存schema2内の小さい補助情報です。旧confirmed cacheでは既存の最大64MiB背景prefix補完を再利用し、既存の録画原点や全編EITを変更せず追加。未観測・不採用も保存して無限再解析を防止し、変更stat・不一致scopeは採用しません。独立DB、同期Browse解析、手動設定、局ロゴ対応は追加しません。
+
+根拠: ARIB TR-B14 8.3の録画コンテンツ属性とVol.7 9.1.3、TR-B15のIPインターフェース属性、STD-B21表9-63。既存REGZA/DBRの保存DIDLでもchannelName/channelNr/ARIB_TB・BSの送信例を確認。送信できることと受信機UIへの表示成功は区別します。
+
+- https://www.arib.or.jp/english/html/overview/doc/8-TR-B14v6_5-1p5-E1.pdf
+- https://www.arib.or.jp/english/html/overview/doc/8-TR-B14v3_8-3p3-E1.pdf
+- https://www.arib.or.jp/english/html/overview/doc/8-TR-B15v4_6-1p4-E1.pdf
+- https://www.arib.or.jp/english/html/overview/doc/6-STD-B21v5_4-E1.pdf

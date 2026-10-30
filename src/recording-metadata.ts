@@ -5,7 +5,7 @@ import { DiagnosticLog } from './diagnostic-log.js';
 import type { scanRecordingEit } from './eit-scanner.js';
 import type {EitScanOptions} from './eit-scanner.js';
 import {PcrDeferred} from './pcr-work.js';
-import type {RecordingRange,RecordingOrigin} from './recording-si.js';
+import {broadcastChannel,type BroadcastChannel,type RecordingRange,type RecordingOrigin} from './recording-si.js';
 
 export type MetadataState = 'pending' | 'confirmed' | 'uncertain' | 'no-eit' | 'error';
 export interface RecordingMetadata {
@@ -17,6 +17,7 @@ export interface RecordingMetadata {
   station?:string;transportStreamId?:number;originalNetworkId?:number;
   recordingRange?:RecordingRange;
   recordingOrigin?:RecordingOrigin;
+  channelInfo?:BroadcastChannel;
 }
 export type EitScan = Awaited<ReturnType<typeof scanRecordingEit>>;
 export type ScanStrategy = (file: string,options?:EitScanOptions) => Promise<EitScan>;
@@ -39,6 +40,10 @@ export function validMetadata(m: unknown): m is RecordingMetadata {
   if (['title','description','reason','station'].some(k => (v as any)[k] !== undefined && !text((v as any)[k]))) return false;
   if (v.startTime !== undefined && !isoTime(v.startTime)) return false;
   if (v.scannedAt !== undefined && !isoTime(v.scannedAt)) return false;
+  if(v.channelInfo!==undefined){const c=v.channelInfo;if(!c||c.version!==1||!['identified','unavailable'].includes(c.state)||c.reason!==undefined&&!text(c.reason))return false;
+   if(c.state==='unavailable'&&(c.objectType!==undefined||c.channelNr!==undefined))return false;
+   if(c.state==='identified'&&(!['ARIB_TB','ARIB_BS','ARIB_CS'].includes(c.objectType!)||c.channelNr!==undefined&&(!Number.isSafeInteger(c.channelNr)||c.channelNr<10||c.channelNr>129999)))return false;
+  }
   if(v.recordingOrigin!==undefined){const o=v.recordingOrigin;
     if(!o||o.version!==1||o.basis!=='tot-pcr-prefix'||!['estimated','unavailable'].includes(o.state)||!Number.isSafeInteger(o.anchors)||o.anchors<0)return false;
     if(o.reason!==undefined&&!text(o.reason))return false;
@@ -76,6 +81,7 @@ export function metadataDisplay(p: {title: string; modified: string; genre?: str
   const jst=(s:string)=>{const d=new Date(Date.parse(s)+9*3600000);return Number.isFinite(d.getTime())?d.toISOString().slice(0,19).replace('T',' ')+' JST':s;};
   const recording=range?.state==='consistent'?`録画範囲（TOT/PCR推定・TS輸送時刻、絶対精度未校正）: ${jst(range.startTime!)} ～ ${jst(range.endTime!)}。時刻分解能の目安1秒。`:'';
   return { title: m?.title?.trim() || p.title, description: [m?.description,recording].filter(Boolean).join('\n'), date: origin ? broadcastDidlTime(origin) : m ? '' : p.modified,
+    channelInfo:m?.channelInfo?.state==='identified'?m.channelInfo:undefined,
     scheduledStartTime:scheduledEnd?broadcastDidlTime(m!.startTime!):undefined,scheduledEndTime:scheduledEnd?broadcastDidlTime(scheduledEnd):undefined,
     genre: m?.genre?.map(n => genreNames[n >> 4] ?? 'その他').filter((v,i,a) => a.indexOf(v) === i).join('、') || p.genre || '' };
 }
@@ -95,6 +101,7 @@ export function summarizeEit(scan: EitScan): RecordingMetadata {
     scannedAt: new Date().toISOString(), reason: scan.selection?.reason ?? 'no-recording-clock',
     selectionProvisional: scan.selection?.provisional, candidateCount: scan.selection?.candidates.length ?? 0,
     ...(station&&{station:station.name,serviceId:station.serviceId,transportStreamId:station.transportStreamId,originalNetworkId:station.originalNetworkId}),
+    ...(scan.complete&&{channelInfo:broadcastChannel(station,scan.networks??[])}),
     ...(scan.recordingRange&&{recordingRange:scan.recordingRange}),
     ...(scan.complete&&scan.recordingOrigin&&{recordingOrigin:scan.recordingOrigin}),
     ...(primary && {serviceId: primary.serviceId, eventId: primary.eventId,
@@ -142,7 +149,9 @@ export class RecordingMetadataCache {
     const before = await fs.stat(source), identity=await this.identity(source),r = await this.record(source), now = Date.now();
     if (r?.version===2&&r.metadata.state === 'pending' && (r.metadata.retryAfter ?? 0) > now) return {metadata:{state:'pending',reason:'waiting-for-stable-file',retryAfter:r.metadata.retryAfter} as RecordingMetadata,cached:true};
     const reusable=r?.version===2&&r.size===before.size&&r.mtimeMs===before.mtimeMs&&r.metadata.state!=='pending'&&(!retry||r.metadata.state==='confirmed');
-    const backfill=reusable&&r.metadata.state==='confirmed'&&r.metadata.recordingRange?.state==='inconsistent'&&!r.metadata.recordingOrigin;
+    const missingOrigin=reusable&&r.metadata.recordingRange?.state==='inconsistent'&&!r.metadata.recordingOrigin;
+    const missingChannel=reusable&&!r.metadata.channelInfo;
+    const backfill=reusable&&r.metadata.state==='confirmed'&&(missingOrigin||missingChannel);
     if(reusable&&!backfill)return {metadata:r.metadata,cached:true};
     let metadata: RecordingMetadata;
     if(backfill){
@@ -150,9 +159,13 @@ export class RecordingMetadataCache {
       // Read at most a bounded prefix for the missing origin; retain full EIT.
       try{const prefix=await this.strategy(source,{...options,maxBytes:64*1024**2});
         const sameScope=prefix.clockValid&&prefix.scopeConsistent!==false&&prefix.patServices?.length===1&&prefix.patServices[0]===r.metadata.serviceId&&prefix.transportStreamId===r.metadata.transportStreamId&&prefix.services.some(s=>s.serviceId===r.metadata.serviceId&&s.transportStreamId===r.metadata.transportStreamId&&s.originalNetworkId===r.metadata.originalNetworkId);
-        if(sameScope&&prefix.recordingOrigin?.reason==='initial-window-not-observed')metadata=summarizeEit(await this.strategy(source,options));
-        else metadata={...r.metadata,recordingOrigin:sameScope&&prefix.recordingOrigin?prefix.recordingOrigin:{version:1,basis:'tot-pcr-prefix',state:'unavailable',anchors:0,reason:'prefix-scope-mismatch'}};
-      }catch(e){if(e instanceof PcrDeferred||(e as Error).name==='AbortError')throw e;metadata={...r.metadata,recordingOrigin:{version:1,basis:'tot-pcr-prefix',state:'unavailable',anchors:0,reason:'prefix-read-failed'}};}
+        if(missingOrigin&&sameScope&&prefix.recordingOrigin?.reason==='initial-window-not-observed')metadata=summarizeEit(await this.strategy(source,options));
+        else metadata={...r.metadata,
+          ...(missingOrigin&&{recordingOrigin:sameScope&&prefix.recordingOrigin?prefix.recordingOrigin:{version:1 as const,basis:'tot-pcr-prefix' as const,state:'unavailable' as const,anchors:0,reason:'prefix-scope-mismatch'}}),
+          ...(missingChannel&&{channelInfo:sameScope?broadcastChannel(prefix.services.find(s=>s.serviceId===r.metadata.serviceId&&s.transportStreamId===r.metadata.transportStreamId&&s.originalNetworkId===r.metadata.originalNetworkId),prefix.networks??[]):{version:1 as const,state:'unavailable' as const,reason:'prefix-scope-mismatch'}})};
+      }catch(e){if(e instanceof PcrDeferred||(e as Error).name==='AbortError')throw e;metadata={...r.metadata,
+        ...(missingOrigin&&{recordingOrigin:{version:1 as const,basis:'tot-pcr-prefix' as const,state:'unavailable' as const,anchors:0,reason:'prefix-read-failed'}}),
+        ...(missingChannel&&{channelInfo:{version:1 as const,state:'unavailable' as const,reason:'prefix-read-failed'}})};}
     }
     else if (now - before.mtimeMs < QUIET_MS) metadata = {state:'pending',reason:'recently-modified',retryAfter:now+RETRY_MS};
     else try {metadata=summarizeEit(await this.strategy(source,options));}

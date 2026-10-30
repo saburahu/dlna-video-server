@@ -23,7 +23,7 @@ test('normal startup automatically hydrates station and schedule, Browse/Metadat
   // No refresh/analyze: automatic publication itself must update the listing.
   await sleep(50);}
  assert.equal(p.metadata.state,'confirmed');assert.equal(p.station.normalize('NFKC'),'STATION & <HD>');assert.equal(p.id,initial.id);assert.equal(p.title,initial.title);
- const direct=await browse('all','BrowseDirectChildren'),meta=await browse('item:'+p.id,'BrowseMetadata');assert.match(direct,/scheduledStartTime/);assert.match(meta,/scheduledEndTime/);assert.match(meta,/TOT\/PCR推定/);assert.notEqual(before.match(/<UpdateID>(\d+)/)?.[1],direct.match(/<UpdateID>(\d+)/)?.[1]);
+ const direct=await browse('all','BrowseDirectChildren'),meta=await browse('item:'+p.id,'BrowseMetadata');assert.match(direct,/scheduledStartTime/);assert.match(meta,/scheduledEndTime/);assert.match(meta,/ARIB_BS/);assert.match(meta,/&lt;upnp:channelNr&gt;10&lt;\/upnp:channelNr&gt;/);assert.match(meta,/TOT\/PCR推定/);assert.notEqual(before.match(/<UpdateID>(\d+)/)?.[1],direct.match(/<UpdateID>(\d+)/)?.[1]);
  const decode=(s:string)=>s.replaceAll('&lt;','<').replaceAll('&gt;','>').replaceAll('&quot;','"').replaceAll('&amp;','&');
  const item=(s:string)=>decode(s.match(/<Result>([\s\S]*?)<\/Result>/)![1]).match(/<item\b[\s\S]*?<\/item>/)![0];assert.equal(item(direct),item(meta));
  const resource=item(meta).match(/<res\b[^>]*>([^<]+)<\/res>/)![1],head=await fetch(resource,{method:'HEAD'});assert.equal(head.status,200);assert.equal(Number(head.headers.get('content-length')),bytes.length);
