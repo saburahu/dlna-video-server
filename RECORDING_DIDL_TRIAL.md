@@ -28,3 +28,5 @@
 confirmed metadataとidentified channelInfo（既存NIT/SDT照合でnetwork_idとONIDの一致を確認済み）、有効な16bit ONID/TSID/SIDを必要とする。TSIDをnetwork_idへ代入しない。地デジとBSの観測に対応し、CS・不明・矛盾した放送区分には追加しない。型番・IP・UDN・作品・固定ObjectIDで許可しない。元録画の実res URLから既存のメタデータを参照するので、一覧とMetadataや別表示経路でも同じ識別値になる。
 
 この対応は既存DMSの送信例と実TSの照合に基づく比較機能であり、独自仕様全体の解明や再生中表示成功を意味しない。TS本体、SI、再生URL、DLNA宣言、時計原点、局名、日時は変更しない。
+
+シーンリスト調査では `{ "condition": "D", "regzaIds": true }` も選択可能。B＋IDとの唯一の項目内容差は3日時要素の小数秒で、class/ID/resは同じ。録画先頭の表現精度は1秒未満失われるが、予定開始への置換やタイムゾーン省略はしない。B＋IDへ即時復元できる。シーン情報取得・ジャンプの成否は実機結果が出るまで未確認とする。

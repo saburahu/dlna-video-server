@@ -20,7 +20,7 @@ export function recordingDidlTrial(enabled=false,metadata:(id:string)=>unknown=(
   status:()=>({enabled,condition,revision,regzaIds}),
   select(value:unknown,ids:unknown=false){
    if(!enabled||typeof value!=='string'||!['A','B','C','D'].includes(value))throw Error('Enabled development trial and A/B/C/D required');
-   if(typeof ids!=='boolean'||ids&&value!=='B')throw Error('REGZA ID comparison requires baseline B and a boolean flag');
+   if(typeof ids!=='boolean'||ids&&!['B','D'].includes(value))throw Error('REGZA IDs require videoItem presentation (B or D) and a boolean flag');
    if(value!==condition||ids!==regzaIds){condition=value as typeof condition;regzaIds=ids;revision++;}
    return this.status();
   },

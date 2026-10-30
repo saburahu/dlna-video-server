@@ -48,3 +48,10 @@ test('REGZA IDs cannot enter unrelated media or ambiguous metadata and reset aft
  const valid=recordingDidlTrial(true,()=>identityMetadata());valid.select('B',true);for(const raw of [item('object.item.videoItem'),item().replace('http://server/media/opaque','http://server/library/jit/aa11')])assert.doesNotMatch(valid.soap(soap(raw),'Browse'),/regza:network_id/);
  const before=valid.status();for(const ids of ['true',1,{},null])assert.throws(()=>valid.select('B',ids));assert.throws(()=>valid.select('A',true));assert.deepEqual(valid.status(),before);assert.equal(recordingDidlTrial(true).status().regzaIds,false);
 });
+test('scene comparison D retains B IDs/class/resources and changes only date precision with explicit JST',()=>{
+ const t=recordingDidlTrial(true,()=>identityMetadata()),source=soap(item().replace('/media/opaque','/media/aa11/recording'));
+ t.select('B',true);const b=t.soap(source,'Browse'),revision=t.revision;t.select('D',true);const d=t.soap(source,'Browse');
+ assert.equal(d,b.replace('.692+09:00','+09:00').replaceAll('.000+09:00','+09:00').replace(`<UpdateID>${100+revision}</UpdateID>`,`<UpdateID>${100+t.revision}</UpdateID>`));
+ assert.ok(d.includes('object.item.videoItem&lt;/upnp:class&gt;'));assert.ok(d.includes('&lt;regza:network_id&gt;4&lt;/regza:network_id&gt;'));assert.ok(d.includes('&lt;regza:service_id&gt;8d&lt;/regza:service_id&gt;'));assert.ok(d.includes('duration=&quot;00:54:20.332&quot;'));
+ assert.throws(()=>t.select('C',true));t.select('B',true);assert.equal(t.soap(source,'Browse').replace(/<UpdateID>\d+<\/UpdateID>/,''),b.replace(/<UpdateID>\d+<\/UpdateID>/,''));
+});
