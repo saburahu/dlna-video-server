@@ -1,3 +1,4 @@
+import {createProgrammeProjection,programmeEnabled,parseProgrammeId,programmeLegacyId,programmeSlice,programmePlan} from './recording-programme.js';
 import {PRODUCT_VERSION} from './product-version.js';
 import { createReadStream, promises as fs } from "node:fs";
 import http, { IncomingMessage, ServerResponse } from "node:http";
@@ -18,7 +19,7 @@ import {applyRecordingMetadata} from './store.js';
 import { Tts192Transform } from "./tts.js";
 import { contentPacketLayout, ContentPacketTransform } from "./content-packet.js";
 import { formatNpt, packetTime, timeSeekProfile, timeSeekSlice } from "./time-seek.js";
-import { buildPcrIndex, pcrIndexCacheStatus,cachedPcrSummary } from "./pcr-index.js";
+import { buildPcrIndex, pcrIndexCacheStatus,cachedPcrSummary,cachedPcrIndex } from "./pcr-index.js";
 import { BitratePacingTransform, PcrPacingTransform } from "./pacing.js";
 import { REGZA_BUFFERED_PROFILE, REGZA_PCR_LEAD_MS } from './playback-policy.js';
 import { deviceXml, scpd, soapResponse, SsdpServer, MediaResource, browseRequest, browsePrograms, browseDIDL } from "./upnp.js";
@@ -53,11 +54,13 @@ let activeMediaReads=0;
 const playbackShadow = createShadowStore(shadowDirectory(), () => settings.folders);
 const experimentalCatalog = createExperimentalCatalog(experimentalCatalogDirectory(), (message, detail) => log('EXPERIMENTAL_CATALOG', message, detail), () => settings.folders,{},inventory=>scanFolders(log,inventory),{busy:()=>activeMediaReads>0,recordingState:()=>programs.map(p=>({file:p.filePath,size:p.size,mtimeMs:Date.parse(p.modified)}))});
 const recordingMetadataCache=new RecordingMetadataCache();
-const pcrBackground=createPcrBackground(path.resolve(process.env.PT3_DATA_DIR||'data'),()=>settings.folders,(event,detail)=>log('PCR_BACKGROUND',event,detail),{
+const programmeProjection:ReturnType<typeof createProgrammeProjection>=createProgrammeProjection(programmeEnabled(),{programs:()=>programs,metadata:source=>recordingMetadataCache.lookup(source),index:cachedPcrIndex,requestWarm:async(source:string):Promise<void>=>{await pcrBackground.recheckMetadata([source]);}});
+const pcrBackground=createPcrBackground(path.resolve(process.env.PT3_DATA_DIR||'data'),()=>settings.folders,(event,detail)=>{log('PCR_BACKGROUND',event,detail);if(event==='PCR_BACKGROUND_COMPLETE'||event==='PCR_CACHE_CLEANED')programmeProjection.invalidate((detail as {source?:string}).source);},{
  busy:()=>experimentalCatalog.jitStatus().some(s=>s.active||s.executors),
  async metadata(source,options){const before=await fs.stat(source),previous=await recordingMetadataCache.lookup(source),result=await recordingMetadataCache.analyze(source,previous.state==='error',options);
   const after=await fs.stat(source);if(before.size!==after.size||before.mtimeMs!==after.mtimeMs)throw new PcrDeferred('source-changed');
   const changed=applyRecordingMetadata(source,result.metadata,before.size,before.mtime);
+  if(programmeProjection.enabled)for(const p of programs.filter(p=>p.published&&path.resolve(p.filePath).toLowerCase()===path.resolve(source).toLowerCase()))await programmeProjection.warm(p,profiles[settings.profile]);
   if(!result.cached||changed)log('RECORDING_METADATA','録画メタデータを更新',{state:result.metadata.state,changed,cached:result.cached});
   if(result.metadata.state==='pending')throw new PcrDeferred('metadata-pending');
   if(result.metadata.state==='error')throw Error('Recording metadata analysis failed');
@@ -69,7 +72,7 @@ const avcControl=createAvcHttpControl(path.resolve(process.env.PT3_DATA_DIR||'da
 const mpegTsTrial=createMpegTsTrial(path.resolve(process.env.PT3_DATA_DIR||'data','mpeg-ts-trial'),(message,detail)=>log('MPEG_TS_TRIAL',message,detail));
 const pictureTrial=createAvcPictureTrial(path.resolve(process.env.PT3_DATA_DIR||'data','avc-picture-trial'),(message,detail)=>log('AVC_PICTURE_TRIAL',message,detail));
 const recordingDisplayTrial=recordingDidlTrial(process.env.PT3_RECORDING_DIDL_TRIAL==='1',id=>programs.find(p=>p.id===id)?.metadata);
-const cdEvents=contentDirectoryEvents(async()=>(systemUpdateId+await experimentalCatalog.updateId()+PUBLIC_MENU_REVISION+recordingDisplayTrial.revision)>>>0,(message,detail)=>log('UPNP_EVENT',message,detail));
+const cdEvents=contentDirectoryEvents(async()=>(systemUpdateId+await experimentalCatalog.updateId()+PUBLIC_MENU_REVISION+recordingDisplayTrial.revision+programmeProjection.revision)>>>0,(message,detail)=>log('UPNP_EVENT',message,detail));
 function beginTrial(programId?: string, note?: string) {
   trial = { id: randomUUID(), profile: settings.profile, startedAt: new Date().toISOString(), programId, note };
   trials.set(trial.id, trial);
@@ -159,7 +162,7 @@ async function contentPacketResources(ids: string[], profileName = settings.prof
   return resources;
 }
 
-async function serveMedia(req: IncomingMessage, res: ServerResponse, id: string) {
+async function serveMedia(req: IncomingMessage, res: ServerResponse, id: string, programmeRevision?:string) {
   const p = programs.find(x => x.id === id && x.published);
   if (!p) return sendJson(res, 404, { error: "番組が見つかりません" });
   if(!await sourceContained(p.filePath,settings.folders))return sendJson(res,403,{error:'Source outside registered recording roots'});
@@ -167,6 +170,8 @@ async function serveMedia(req: IncomingMessage, res: ServerResponse, id: string)
   const st = safeStat(p.filePath);
   if (!st?.isFile()) return sendJson(res, 404, { error: "ファイルがありません" });
   let profile = profiles[settings.profile] || profiles.standard;
+  const candidateProgramme=programmeRevision?await programmeProjection.resolve(p,profile):undefined;
+  if(programmeRevision&&(!candidateProgramme||candidateProgramme.revision!==programmeRevision))return sendJson(res,410,{error:'Programme resource expired; Browse again'});
   const context = requests.get(req)!;
   const requestStarted = context.requestStartedMs as number;
   Object.assign(context, { programId: p.id, programTitle: p.title, savedProfile: profile.name });
@@ -234,16 +239,20 @@ async function serveMedia(req: IncomingMessage, res: ServerResponse, id: string)
     }, req);
     return sendJson(res, 422, { error: "PCRから目標速度を算出できません。詳細診断を確認してください。" });
   }
+  const programme=candidateProgramme;
+  if(programmeRevision&&(!programme||!pcrIndex||programmePlan({...p,metadata:programme.metadata},pcrIndex,profile,st)?.revision!==programmeRevision))return sendJson(res,410,{error:'Programme resource expired; Browse again'});
   const contentPacket = encapsulated ? contentPacketLayout(payloadSize, payloadBitrate) : null;
-  const servedSize = contentPacket?.servedBytes ?? payloadSize;
+  const servedSize = programme?.size ?? contentPacket?.servedBytes ?? payloadSize;
   const pacingBitrate = payloadBitrate * servedSize / payloadSize;
   let timeSlice: ReturnType<typeof timeSeekSlice> | null = null;
   let seekDuration: number | null = null;
   if (timeSeekEnabled) {
     try {
-      seekDuration = packetTime(pcrIndex!, pcrIndex!.packetCount);
+      seekDuration = programme?.duration ?? packetTime(pcrIndex!, pcrIndex!.packetCount);
       const header = req.headers['timeseekrange.dlna.org'];
-      if (header !== undefined) {
+      if(header!==undefined&&typeof header!=='string')throw new RangeError('Invalid TimeSeekRange');
+      if(programme)timeSlice=programmeSlice(pcrIndex!,programme,typeof header==='string'?header:undefined);
+      else if (header !== undefined) {
         if (typeof header !== 'string') throw new RangeError('Invalid TimeSeekRange');
         timeSlice = timeSeekSlice(pcrIndex!, contentPacket!.blockBytes, header);
       }
@@ -286,21 +295,23 @@ async function serveMedia(req: IncomingMessage, res: ServerResponse, id: string)
     ...(range ? { "Content-Range": `bytes ${start}-${end}/${servedSize}` } : {})
   };
 
+  if(programme){const current=await fs.stat(p.filePath);if(current.size!==st.size||current.mtimeMs!==st.mtimeMs)return sendJson(res,410,{error:'Programme source changed'});}
   res.writeHead(status, responseHeaders);
   // Observation only: runs once AFTER finish/close, never awaited or used by delivery.
   if (process.env.PT3_SHADOW_DISABLED !== '1') attachShadow(res, { fingerprint: { path: path.resolve(p.filePath), size: st.size, mtimeMs: st.mtimeMs },
     remoteIp: req.socket.remoteAddress || '', requestId: String(context.connectionId ?? ''), trialId: trial?.id,
     method: req.method || '', headers: { ...req.headers },
-    actualPlaybackPath: { handler: 'existing-serveMedia', profile: profile.name, protocolInfo: protocolInfo(profile),
+    actualPlaybackPath: { handler: 'existing-serveMedia',programme:programme?{origin:programme.origin,revision:programme.revision}:null, profile: profile.name, protocolInfo: protocolInfo(profile),
       packetSize: outputPacketSize, contentPacket: !!contentPacket, timeSeekEnabled, range: range || null,
       timeSlice, pacing: paced, localPcrPacing, pacingLeadMs, responseStatus: status, responseHeaders } }, playbackShadow);
   log("HTTP_MEDIA", `${req.method} ${p.title}`, {
+    programme:programme?{objectId:programme.id,revision:programme.revision,sourceOrigin:programme.origin,first:programme.first,last:programme.last}:null,
     method: req.method,
     actualPacketSize: convertTo192 ? 192 : "packetSize" in ts ? ts.packetSize : null,
     protocolInfo: protocolInfo(profile),
     declaredPacketization: profile.packetization,
-    encapsulation: contentPacket ? { mode: "arib-content-packet", ...contentPacket,
-      payloadBytes: payloadSize, payloadBitsPerSecond: payloadBitrate, userDefinedHex: "000000000000000000" } : { mode: "none" },
+    encapsulation: contentPacket ? { mode: "arib-content-packet", ...contentPacket, servedBytes:servedSize, blocks:programme?Math.ceil((programme.last-programme.first)*192/contentPacket.blockBytes):contentPacket.blocks,
+      payloadBytes: programme?(programme.last-programme.first)*192:payloadSize, payloadBitsPerSecond: payloadBitrate, userDefinedHex: "000000000000000000" } : { mode: "none" },
     targetBitsPerSecond: paced ? targetBitsPerSecond : null,
     pacingMode: localPcrPacing ? 'local-pcr' : 'whole-file-average',
     pacingLeadMs,
@@ -645,6 +656,8 @@ async function handler(req: IncomingMessage, res: ServerResponse) {
     if(catalogJit)return experimentalCatalog.jitMedia(req,res,catalogJit[1],true);
     const experimentalMedia = /^\/experimental\/media\/([a-f0-9]{32})$/.exec(url.pathname);
     if (experimentalMedia && (req.method === 'GET' || req.method === 'HEAD')) return experimentalCatalog.media(req, res, experimentalMedia[1]);
+    const programmeRoute=/^\/programme-v1\/([a-f0-9]+)\/([a-f0-9]{24})\.tts$/.exec(url.pathname);
+    if(url.pathname.startsWith('/programme-v1/')){if(!programmeProjection.enabled||!programmeRoute||!['GET','HEAD'].includes(req.method!))return sendJson(res,404,{error:'Not found'});return serveMedia(req,res,programmeRoute[1],programmeRoute[2]);}
     const media = /^\/media\/([a-f0-9]+)/.exec(url.pathname);
     if (media && (req.method === "GET" || req.method === "HEAD")) return serveMedia(req, res, media[1]);
     if (url.pathname === "/upnp/device.xml") { log("UPNP_HTTP", "GET Device Description", undefined, req); return xml(res, deviceXml(baseUrl())); }
@@ -665,7 +678,10 @@ async function handler(req: IncomingMessage, res: ServerResponse) {
       await experimentalCatalog.observeClient(req,payload);
       const action = String(req.headers.soapaction || "").replaceAll('"', "").split("#").pop() || "";
       const profile = profiles[settings.profile] || profiles.standard;
-      const browse = action === 'Browse' ? browseRequest(payload) : undefined;
+      let browse = action === 'Browse' ? browseRequest(payload) : undefined;
+      const programmeRequestedId=browse?.objectId;
+      const programmeMetadata=programmeProjection.enabled&&browse?.metadata?parseProgrammeId(browse.objectId):null;
+      if(programmeMetadata)browse={...browse!,objectId:programmeLegacyId(programmeMetadata)};
       const picturePage=browse?await pictureTrial.browse(browse,await experimentalCatalog.client(req),baseUrl()):undefined;
       const experimentalPage = browse && await experimentalCatalog.browse(browse, await experimentalCatalog.client(req), baseUrl(), metadata => browseDIDL('0', 0, 0, programs, baseUrl(), profile, metadata),true);
       if (experimentalPage && browse) {
@@ -675,7 +691,7 @@ async function handler(req: IncomingMessage, res: ServerResponse) {
       let resources = new Map<string, MediaResource>();
       if (profile.packetization === 'tts-192' && profile.pacing) {
         if (action === 'Browse') {
-          const request = browseRequest(payload);
+          const request = browse??browseRequest(payload);
           const integrated = !request.metadata && request.objectId==='all' && await experimentalCatalog.libraryEnabled();
           const count = integrated ? Math.min(request.count || 200, 200) : request.count;
           const selected = browsePrograms(request.objectId, request.start, count, programs, request.metadata).selected;
@@ -703,7 +719,7 @@ async function handler(req: IncomingMessage, res: ServerResponse) {
         const xml=browseDIDL(`item:${p.id}`,0,1,[p],baseUrl(),profile,true,r).didl;return /<item\b[\s\S]*?<\/item>/.exec(xml)?.[0];
       }):undefined;
       const normalPage=picturePage??folderPage??libraryPage;
-      let result = normalPage?experimentalBrowseSoap({...normalPage,updateId:(systemUpdateId+(normalPage.updateId??0))>>>0},systemUpdateId):experimentalPage ? experimentalBrowseSoap({...experimentalPage,updateId:(systemUpdateId+(experimentalPage.updateId??0))>>>0}, systemUpdateId) : soapResponse(action, payload, baseUrl(), programs, profile, resources);
+      let result = normalPage?experimentalBrowseSoap({...normalPage,updateId:(systemUpdateId+(normalPage.updateId??0))>>>0},systemUpdateId):experimentalPage ? experimentalBrowseSoap({...experimentalPage,updateId:(systemUpdateId+(experimentalPage.updateId??0))>>>0}, systemUpdateId) : soapResponse(action, programmeMetadata?payload.replace(/<ObjectID>[\s\S]*?<\/ObjectID>/,`<ObjectID>${programmeLegacyId(programmeMetadata)}</ObjectID>`):payload, baseUrl(), programs, profile, resources);
       if(action==='GetSystemUpdateID'){const catalogUpdate=await experimentalCatalog.updateId();if(catalogUpdate)result=result.replace(/<Id>\d+<\/Id>/,`<Id>${(systemUpdateId+catalogUpdate)>>>0}</Id>`);}
       if (action === 'GetProtocolInfo') {
         const experimentalProtocols = await experimentalCatalog.protocolInfos(await experimentalCatalog.client(req));
@@ -715,6 +731,7 @@ async function handler(req: IncomingMessage, res: ServerResponse) {
       }
       result=menuRevisionSoap(result,action);
       result=recordingDisplayTrial.soap(result,action);
+      result=await programmeProjection.soap(result,action,programmeRequestedId,baseUrl(),profile);
       if(browse?.objectId==='0')result=appendPictureRoot(result,browse,await pictureTrial.count(await experimentalCatalog.client(req)));
       // Retain the actual Browse declaration without changing the playback profile.
       // Bound XML copies so a large catalogue does not exhaust JSONL retention.
@@ -727,10 +744,10 @@ async function handler(req: IncomingMessage, res: ServerResponse) {
         xmlLimitUtf16Units: xmlLimit,
         requestBytes: Buffer.byteLength(payload), responseBytes: Buffer.byteLength(result),
         responseSha256: createHash("sha256").update(result).digest("hex"),
-        responseStatus: 200, protocolInfo: protocolInfo(profiles[settings.profile]),
+        responseStatus: programmeMetadata&&result.includes('<s:Fault>')?500:200, protocolInfo: protocolInfo(profiles[settings.profile]),
         declaredPacketization: profiles[settings.profile].packetization
       }, req);
-      return xml(res, result);
+      return xml(res, result, programmeMetadata&&result.includes('<s:Fault>')?500:200);
     }
     if (url.pathname === "/favicon.ico") { res.writeHead(204); return res.end(); }
     let file = url.pathname === "/" ? "index.html" : url.pathname.slice(1);
@@ -746,8 +763,8 @@ async function handler(req: IncomingMessage, res: ServerResponse) {
     if (Date.now() - started > 1000) log("APP", `遅い要求 ${req.method} ${url.pathname}: ${Date.now() - started}ms`);
   }
 }
-function xml(res: ServerResponse, value: string) {
-  res.writeHead(200, { "Content-Type": "text/xml; charset=utf-8", "Content-Length": Buffer.byteLength(value), "EXT": "" }); res.end(value);
+function xml(res: ServerResponse, value: string, status=200) {
+  res.writeHead(status, { "Content-Type": "text/xml; charset=utf-8", "Content-Length": Buffer.byteLength(value), "EXT": "" }); res.end(value);
 }
 
 await loadStore();
@@ -760,7 +777,7 @@ beginTrial(undefined, "サーバー起動");
 const server = http.createServer(handler);
 const ssdp = new SsdpServer(() => baseUrl(), log);
 server.on("error", e => { log("ERROR", "HTTPサーバー起動失敗", String(e)); process.exitCode = 1; });
-server.listen(settings.port, "0.0.0.0", async () => {
+server.listen(settings.port, process.env.PT3_BIND_LOOPBACK==='1'?'127.0.0.1':"0.0.0.0", async () => {
   boundPort = (server.address() as { port: number }).port;
   log("APP", `管理画面: http://localhost:${boundPort}`);
   if (process.env.PT3_DISABLE_SSDP !== "1") ssdp.start(localAddress());

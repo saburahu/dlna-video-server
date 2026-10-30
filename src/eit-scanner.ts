@@ -124,7 +124,7 @@ async function scan(filePath:string,options:EitScanOptions,control?:PcrWorkContr
   if(selection && (!complete || recordingStartTimeMs===undefined))selection.provisional=true;
   const after=await fs.stat(filePath);
   if(before.size!==after.size||before.mtimeMs!==after.mtimeMs)throw new Error('Recording changed during EIT scan');
-  return {complete,readBytes,packetCount:packet-firstPacket,firstPacket,endPacket:packet,packetSize:size,trailingBytes:pending.length,
+  return {pcrPid:index?.pid??null,sourceFingerprint:{size:before.size,mtimeMs:before.mtimeMs},complete,readBytes,packetCount:packet-firstPacket,firstPacket,endPacket:packet,packetSize:size,trailingBytes:pending.length,
     elapsedMs:performance.now()-started,indexMs,clockValid,durationSeconds:duration,recordingStartTimeMs:recordingStartTimeMs??null,
     timeAnchorCount:anchors.length,timeAnchorSpreadMs:spread,serviceId:serviceId??null,patServices:[...pat.keys()],
     transportStreamId:patTsid,scopeConsistent,services:[...services.values()],networks:[...networks.values()],recordingRange:range,

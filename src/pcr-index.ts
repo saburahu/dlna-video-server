@@ -18,6 +18,13 @@ export async function cachedPcrSummary(filePath:string):Promise<PcrCacheSummary|
  return readPcrSummary(filePath,key);
 }
 
+/** Resolved memory/disk index only: never start or join a source scan. */
+export async function cachedPcrIndex(filePath:string,key:string):Promise<PcrIndex|null|undefined>{
+ const id=sourcePathKey(path.resolve(filePath)),entry=cache.get(id);
+ if(entry?.key===key&&weights.has(id))return entry.value;
+ return (await readPcrCache(filePath,key))?.index;
+}
+
 function hasDiscontinuity(packet: Buffer): boolean {
   const adaptation = (packet[3] >> 4) & 0x03;
   if (adaptation !== 2 && adaptation !== 3) return false;
