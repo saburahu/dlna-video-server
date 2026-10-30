@@ -33,6 +33,7 @@ import {createMpegTsTrial} from './mpeg-ts-trial.js';
 import {PUBLIC_MENU_REVISION,menuRevisionSoap} from './public-directory.js';
 import {createAvcPictureTrial,appendPictureRoot} from './avc-picture-trial.js';
 import {createFamilyShadow,FAMILY_VERSION} from './client-family.js';
+import {recordingDidlTrial,recordingDidlTrialAccess} from './recording-didl-trial.js';
 
 import {managementAccess,redactHeaders}from './management-access.js';
 import{sourceContained}from'./source-containment.js';
@@ -67,7 +68,8 @@ const clientDiagnostics=createClientContractDiagnostics(path.resolve(process.env
 const avcControl=createAvcHttpControl(path.resolve(process.env.PT3_DATA_DIR||'data','avc-http-control'),path.resolve(experimentalCatalogDirectory(),'jit.json'),(message,detail)=>log('AVC_HTTP_CONTROL',message,detail));
 const mpegTsTrial=createMpegTsTrial(path.resolve(process.env.PT3_DATA_DIR||'data','mpeg-ts-trial'),(message,detail)=>log('MPEG_TS_TRIAL',message,detail));
 const pictureTrial=createAvcPictureTrial(path.resolve(process.env.PT3_DATA_DIR||'data','avc-picture-trial'),(message,detail)=>log('AVC_PICTURE_TRIAL',message,detail));
-const cdEvents=contentDirectoryEvents(async()=>(systemUpdateId+await experimentalCatalog.updateId()+PUBLIC_MENU_REVISION)>>>0,(message,detail)=>log('UPNP_EVENT',message,detail));
+const recordingDisplayTrial=recordingDidlTrial(process.env.PT3_RECORDING_DIDL_TRIAL==='1');
+const cdEvents=contentDirectoryEvents(async()=>(systemUpdateId+await experimentalCatalog.updateId()+PUBLIC_MENU_REVISION+recordingDisplayTrial.revision)>>>0,(message,detail)=>log('UPNP_EVENT',message,detail));
 function beginTrial(programId?: string, note?: string) {
   trial = { id: randomUUID(), profile: settings.profile, startedAt: new Date().toISOString(), programId, note };
   trials.set(trial.id, trial);
@@ -486,7 +488,15 @@ async function handler(req: IncomingMessage, res: ServerResponse) {
       }
       if(url.pathname==='/api/pcr-cache'&&req.method==='GET')return sendJson(res,200,await pcrBackground.inspect());
       if(url.pathname==='/api/pcr-cache'&&req.method==='POST'){try{return sendJson(res,200,await pcrBackground.configure(JSON.parse(await body(req))));}catch(e){return sendJson(res,400,{error:String(e)});}}
-      if (url.pathname === "/api/status") return sendJson(res, 200, { running: true, productVersion: PRODUCT_VERSION, buildId: process.env.PT3_BUILD_ID ?? null, baseUrl: baseUrl(), settings, trial,
+      if(url.pathname==='/api/diagnostics/recording-didl'){
+        if(!recordingDisplayTrial.status().enabled)return sendJson(res,404,{error:'Development trial disabled'});
+        if(!recordingDidlTrialAccess(req.socket.remoteAddress,req.headers.host,String(req.headers.origin??'')||undefined,req.headers['content-type'],boundPort))return sendJson(res,403,{error:'Local JSON request required'});
+        if(req.method==='GET')return sendJson(res,200,recordingDisplayTrial.status());
+        if(req.method!=='POST')return sendJson(res,405,{error:'GET/POST only'});
+        if(pcrWork.busy()||activeMediaReads||experimentalCatalog.jitStatus().some(s=>s.active||s.executors))return sendJson(res,409,{error:'Stop playback before changing the presentation trial'});
+        try{const state=recordingDisplayTrial.select(JSON.parse(await body(req,1024)).condition);log('RECORDING_DIDL_TRIAL','Presentation condition selected',state);return sendJson(res,200,state);}catch(e){return sendJson(res,400,{error:String(e)});}
+      }
+      if (url.pathname === "/api/status") return sendJson(res, 200, { running: true, productVersion: PRODUCT_VERSION, buildId: process.env.PT3_BUILD_ID ?? null, baseUrl: baseUrl(), settings, trial,recordingDidlTrial:recordingDisplayTrial.status(),
         logStorage: { directory: diskLog.directory, maxBytes: diskLog.maxBytes, archives: diskLog.archives, error: logError },
         pcrCache: pcrIndexCacheStatus(),
         programCount: programs.length, logs: logs.slice(-20), interfaces: availableInterfaces() });
@@ -704,12 +714,14 @@ async function handler(req: IncomingMessage, res: ServerResponse) {
         if(mpegTsProtocol)result=result.replace(/<Source>([^<]*)<\/Source>/,(_,original)=>`<Source>${original}${original?',':''}${escapeXml(mpegTsProtocol)}</Source>`);
       }
       result=menuRevisionSoap(result,action);
+      result=recordingDisplayTrial.soap(result,action);
       if(browse?.objectId==='0')result=appendPictureRoot(result,browse,await pictureTrial.count(await experimentalCatalog.client(req)));
       // Retain the actual Browse declaration without changing the playback profile.
       // Bound XML copies so a large catalogue does not exhaust JSONL retention.
       const xmlLimit = 64 * 1024;
       log("SOAP", action, {
         requestHeaders: req.headers,
+        recordingDidlTrial:recordingDisplayTrial.status(),
         requestXml: payload.slice(0, xmlLimit), requestXmlTruncated: payload.length > xmlLimit,
         responseXml: result.slice(0, xmlLimit), responseXmlTruncated: result.length > xmlLimit,
         xmlLimitUtf16Units: xmlLimit,
