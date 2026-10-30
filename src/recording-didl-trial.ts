@@ -2,7 +2,7 @@
  * Disabled unless explicitly enabled by the development launcher; resets to A.
  * Transform only legacy recording items originally advertised as videoBroadcast.
  * Keep encoded DIDL untouched outside the two experimental fields. */
-import {validMetadata} from './recording-metadata.js';
+import {validMetadata,metadataDisplay} from './recording-metadata.js';
 /** Empirical REGZA terrestrial/BS representation, not a universal vendor spec.
  * identified channelInfo was derived with NIT network_id == SDT ONID; TSID is
  * deliberately NOT substituted. CS and uncertain identities lack wire evidence. */
@@ -14,15 +14,16 @@ export function regzaRecordingIdentity(value:unknown){
  return {network:onid!.toString(16),service:sid!.toString(16)};
 }
 export function recordingDidlTrial(enabled=false,metadata:(id:string)=>unknown=()=>undefined){
- let condition:'A'|'B'|'C'|'D'='A',revision=enabled?1:0,regzaIds=false,sceneProgramDate=false;
+ let condition:'A'|'B'|'C'|'D'='A',revision=enabled?1:0,regzaIds=false,sceneProgramDate=false,recordedStartDate=false;
  return {
   get revision(){return revision;},
-  status:()=>({enabled,condition,revision,regzaIds,sceneProgramDate}),
-  select(value:unknown,ids:unknown=false,programDate:unknown=false){
+  status:()=>({enabled,condition,revision,regzaIds,sceneProgramDate,recordedStartDate}),
+  select(value:unknown,ids:unknown=false,programDate:unknown=false,recordedStart:unknown=false){
    if(!enabled||typeof value!=='string'||!['A','B','C','D'].includes(value))throw Error('Enabled development trial and A/B/C/D required');
    if(typeof ids!=='boolean'||ids&&!['B','D'].includes(value))throw Error('REGZA IDs require videoItem presentation (B or D) and a boolean flag');
    if(typeof programDate!=='boolean'||programDate&&!ids)throw Error('Program date comparison requires explicit IDs and a boolean flag');
-   if(value!==condition||ids!==regzaIds||programDate!==sceneProgramDate){condition=value as typeof condition;regzaIds=ids;sceneProgramDate=programDate;revision++;}
+   if(typeof recordedStart!=='boolean'||recordedStart&&(!programDate||value!=='B'))throw Error('Recorded-start comparison requires successful B/IDs/program-date baseline and a boolean flag');
+   if(value!==condition||ids!==regzaIds||programDate!==sceneProgramDate||recordedStart!==recordedStartDate){condition=value as typeof condition;regzaIds=ids;sceneProgramDate=programDate;recordedStartDate=recordedStart;revision++;}
    return this.status();
   },
   soap(xml:string,action:string){
@@ -39,7 +40,7 @@ export function recordingDidlTrial(enabled=false,metadata:(id:string)=>unknown=(
     if(condition==='C'||condition==='D')item=item.replace(/(&lt;(dc:date|upnp:scheduledStartTime|upnp:scheduledEndTime)&gt;\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d)\.\d{3}(\+09:00&lt;\/\2&gt;)/g,'$1$3');
     if(regzaIds){
      const resource=/&lt;res\b[\s\S]*?&gt;([\s\S]*?)&lt;\/res&gt;/.exec(item)?.[1],id=resource&&/\/media\/([a-f0-9]+)\//.exec(resource)?.[1];
-     const identity=id?regzaRecordingIdentity(metadata(id)):undefined;
+     const details=id?metadata(id):undefined,identity=regzaRecordingIdentity(details);
      if(identity&&!item.includes('xmlns:regza=')){
       item=item.replace(/^&lt;item\b[\s\S]*?&gt;/,tag=>tag.replace(/&gt;$/,' xmlns:regza=&quot;urn:schemas-toshiba-co-jp:regzadata-1-0&quot;&gt;'));
       item=item.replace('&lt;/item&gt;',`&lt;regza:network_id&gt;${identity.network}&lt;/regza:network_id&gt;&lt;regza:service_id&gt;${identity.service}&lt;/regza:service_id&gt;&lt;/item&gt;`);
@@ -50,6 +51,13 @@ export function recordingDidlTrial(enabled=false,metadata:(id:string)=>unknown=(
      if(identity&&sceneProgramDate){
       const start=/&lt;upnp:scheduledStartTime&gt;([\s\S]*?)&lt;\/upnp:scheduledStartTime&gt;/.exec(item)?.[1];
       if(start&&/^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(?:\.\d{3})?\+09:00$/.test(start)&&Number.isFinite(Date.parse(start)))item=item.replace(/(&lt;dc:date&gt;)[\s\S]*?(&lt;\/dc:date&gt;)/,(_,open,close)=>open+start+close);
+     }
+     // CDS:2 metadata experiment on the CDS:1 endpoint: opt-in only, not a
+     // claim that a receiver requests/uses this field or offsets its NPT clock.
+     if(identity&&recordedStartDate&&validMetadata(details)&&details.recordingRange?.state!=='discontinuous'&&(details.recordingRange?.segments??1)<=1){
+      const origin=details.recordingOrigin?.state==='estimated'?details.recordingOrigin.startTime:details.recordingRange?.state==='consistent'?details.recordingRange.startTime:undefined;
+      const date=origin?metadataDisplay({title:"",modified:"",metadata:details}).date:undefined;
+      if(date&&/^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{3}\+09:00$/.test(date)&&!item.includes('&lt;upnp:recordedStartDateTime'))item=item.replace('&lt;/item&gt;',`&lt;upnp:recordedStartDateTime&gt;${date}&lt;/upnp:recordedStartDateTime&gt;&lt;/item&gt;`);
      }
     }
     return item;

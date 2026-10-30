@@ -72,3 +72,17 @@ test('scene comparison D retains B IDs/class/resources and changes only date pre
  assert.ok(d.includes('object.item.videoItem&lt;/upnp:class&gt;'));assert.ok(d.includes('&lt;regza:network_id&gt;4&lt;/regza:network_id&gt;'));assert.ok(d.includes('&lt;regza:service_id&gt;8d&lt;/regza:service_id&gt;'));assert.ok(d.includes('duration=&quot;00:54:20.332&quot;'));
  assert.throws(()=>t.select('C',true));t.select('B',true);assert.equal(t.soap(source,'Browse').replace(/<UpdateID>\d+<\/UpdateID>/,''),b.replace(/<UpdateID>\d+<\/UpdateID>/,''));
 });
+
+test('recorded-start is one extra metadata element; scene date, IDs, resources, original clocks stay intact',()=>{
+ const metadata={...identityMetadata(),startTime:'2026-10-25T12:45:00Z',recordingOrigin:{version:1,basis:'tot-pcr-prefix',state:'estimated',anchors:4,startTime:'2026-10-25T12:44:49.692Z',firstSeconds:.3,lastSeconds:15,spreadMs:120,uncertaintySeconds:1}},copy=structuredClone(metadata),t=recordingDidlTrial(true,()=>metadata),raw=soap(item().replace('/media/opaque','/media/aa11/recording'));
+ t.select('B',true,true);const baseline=t.soap(raw,'Browse'),revision=t.revision;t.select('B',true,true,true);const field='&lt;upnp:recordedStartDateTime&gt;2026-10-25T21:44:49.692+09:00&lt;/upnp:recordedStartDateTime&gt;';
+ assert.equal(t.soap(raw,'Browse'),baseline.replace('&lt;/item&gt;',field+'&lt;/item&gt;').replace(`<UpdateID>${100+revision}</UpdateID>`,`<UpdateID>${100+t.revision}</UpdateID>`));assert.deepEqual(metadata,copy);assert.equal(t.status().sceneProgramDate,true);assert.equal(t.status().recordedStartDate,true);
+ const stable=t.revision;t.select('B',true,true,true);assert.equal(t.revision,stable);t.select('B',true,true,false);assert.equal(t.status().sceneProgramDate,true);assert.equal(t.soap(raw,'Browse').replace(/<UpdateID>\d+<\/UpdateID>/,''),baseline.replace(/<UpdateID>\d+<\/UpdateID>/,''));
+});
+test('recorded-start cannot infer dates from schedule, file dates, malformed or discontinuous recording clocks',()=>{
+ const raw=soap(item().replace('/media/opaque','/media/aa11/recording')),origin={version:1,basis:'tot-pcr-prefix',state:'estimated',anchors:4,startTime:'2026-10-25T12:44:49.692Z',firstSeconds:.3,lastSeconds:15,spreadMs:120,uncertaintySeconds:1};
+ for(const metadata of [identityMetadata(),{...identityMetadata(),state:'uncertain',recordingOrigin:origin},{...identityMetadata(),recordingOrigin:{...origin,startTime:'2026-02-30T12:44:49Z'}},{...identityMetadata(),recordingOrigin:{...origin,spreadMs:251}},{...identityMetadata(),recordingOrigin:origin,recordingRange:{basis:'tot-pcr-transport',state:'discontinuous',segments:2,anchorCount:4}}]){
+  const t=recordingDidlTrial(true,()=>metadata);t.select('B',true,true,true);assert.doesNotMatch(t.soap(raw,'Browse'),/upnp:recordedStartDateTime/);
+ }
+ const t=recordingDidlTrial(true,()=>({...identityMetadata(),recordingOrigin:origin}));assert.equal(t.status().recordedStartDate,false);const before=t.status();for(const args of [['B',true,true,'true'],['B',true,false,true],['D',true,true,true],['B',true,true,null]])assert.throws(()=>t.select(...args as [unknown,unknown,unknown,unknown]));assert.deepEqual(t.status(),before);assert.equal(recordingDidlTrial(true).status().recordedStartDate,false);
+});

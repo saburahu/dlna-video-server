@@ -40,3 +40,11 @@ https://www.global.toshiba/content/dam/toshiba/migration/corp/techReviewAssets/t
 追加の開発用 `sceneProgramDate: true` はB/D＋IDsでのみ選択でき、確認済み録画の既存scheduledStartTimeをdc:dateへ表示する。既定OFF・省略でOFF・再起動後OFF。通常起動では制御API自体が存在しない。ファイル名や個体別IDは条件にしない。元のキャッシュ、放送時計のアンカー、TS、res、NPT/Seekは変更せず、項目内容はdc:dateの1要素だけを変更する。予定時刻なし・不正・未確定の場合は置換しない。
 
 この比較は通常仕様ではない。録画マージンのある項目ではTVの表示時計がマージン分進む可能性があり、シーンジャンプ位置の整合も未証明。録画先頭の表示時計を維持する指定と両立しない可能性があるため、この例外を許可するまでは稼働19090で選択しない。新しい時刻を既存のTS原点と同一視せず、要求NPTを推測で補正しない。結果にかかわらず `{ "condition": "B", "regzaIds": true }` で比較を解除できる。既存のB/Dテストを繰り返し依頼するものではない。
+
+## シーン照合と実録画先頭の分離比較（既定OFF）
+
+B＋REGZA IDs＋sceneProgramDateを維持したまま、`recordedStartDate: true` だけを加える独立比較を用意した。`upnp:recordedStartDateTime` には、valid/confirmedメタデータの既存TOT/PCR由来recordingOrigin（なければconsistentなrecordingRange）のみを使う。予定開始やファイル更新日時から推測しない。不明・不正・不連続・複数segmentでは通知しない。JST＋小数秒を保持し、TS、キャッシュ、res、duration、NPTやSeekを変更しない。既定OFF、再起動後OFF。falseに戻してもsceneProgramDateをtrueに保てばシーン照合条件は失われない。
+
+この属性はCDS:2 Appendix B.7.11に定義され、CDS:1の標準属性ではない。サービスの広告はCDS:1のままで、対応を偽って:2へ上げない。これはローカル開発モードだけのメタデータ比較であり、厳密なCDS:1属性集合／Filter適合を主張しない。試験時は受信機が明示要求していない属性も追加し、実応答で到達を確認する。既存DMSの送信実績、受信機の使用実績は別途検証が必要。正常なXMLとして受信できても利用するとは限らない。
+
+比較前後の項目内容差はこの1要素だけ、UpdateIDは従来の比較改訂方式に従う。実機ではシーン一覧が消えないこと、録画余白の時計表示、同じシーンを選ぶ場合の位置をそれぞれ区別する。通常Seekとシーンジャンプを要求から識別できない限り、サーバーで全NPTへ固定値・録画マージンを加算しない。録画範囲に不連続がある場合も単一offsetで扱わない。
