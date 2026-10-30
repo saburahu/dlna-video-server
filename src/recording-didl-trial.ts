@@ -2,14 +2,26 @@
  * Disabled unless explicitly enabled by the development launcher; resets to A.
  * Transform only legacy recording items originally advertised as videoBroadcast.
  * Keep encoded DIDL untouched outside the two experimental fields. */
-export function recordingDidlTrial(enabled=false){
- let condition:'A'|'B'|'C'|'D'='A',revision=enabled?1:0;
+import {validMetadata} from './recording-metadata.js';
+/** Empirical REGZA terrestrial/BS representation, not a universal vendor spec.
+ * identified channelInfo was derived with NIT network_id == SDT ONID; TSID is
+ * deliberately NOT substituted. CS and uncertain identities lack wire evidence. */
+export function regzaRecordingIdentity(value:unknown){
+ if(!validMetadata(value)||value.state!=='confirmed'||value.textSuspect||value.channelInfo?.state!=='identified')return;
+ const {originalNetworkId:onid,transportStreamId:tsid,serviceId:sid}=value,type=value.channelInfo.objectType;
+ if([onid,tsid,sid].some(n=>!Number.isSafeInteger(n)||n!<=0||n!>65535))return;
+ if(type==='ARIB_BS'?onid!==4:type==='ARIB_TB'?onid===4:true)return;
+ return {network:onid!.toString(16),service:sid!.toString(16)};
+}
+export function recordingDidlTrial(enabled=false,metadata:(id:string)=>unknown=()=>undefined){
+ let condition:'A'|'B'|'C'|'D'='A',revision=enabled?1:0,regzaIds=false;
  return {
   get revision(){return revision;},
-  status:()=>({enabled,condition,revision}),
-  select(value:unknown){
+  status:()=>({enabled,condition,revision,regzaIds}),
+  select(value:unknown,ids:unknown=false){
    if(!enabled||typeof value!=='string'||!['A','B','C','D'].includes(value))throw Error('Enabled development trial and A/B/C/D required');
-   if(value!==condition){condition=value as typeof condition;revision++;}
+   if(typeof ids!=='boolean'||ids&&value!=='B')throw Error('REGZA ID comparison requires baseline B and a boolean flag');
+   if(value!==condition||ids!==regzaIds){condition=value as typeof condition;regzaIds=ids;revision++;}
    return this.status();
   },
   soap(xml:string,action:string){
@@ -24,6 +36,14 @@ export function recordingDidlTrial(enabled=false){
     // Truncate displayed precision (<1 s), never round into the next second.
     // Preserve explicit JST; cached UTC anchors and all res attributes are intact.
     if(condition==='C'||condition==='D')item=item.replace(/(&lt;(dc:date|upnp:scheduledStartTime|upnp:scheduledEndTime)&gt;\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d)\.\d{3}(\+09:00&lt;\/\2&gt;)/g,'$1$3');
+    if(regzaIds){
+     const resource=/&lt;res\b[\s\S]*?&gt;([\s\S]*?)&lt;\/res&gt;/.exec(item)?.[1],id=resource&&/\/media\/([a-f0-9]+)\//.exec(resource)?.[1];
+     const identity=id?regzaRecordingIdentity(metadata(id)):undefined;
+     if(identity&&!item.includes('xmlns:regza=')){
+      item=item.replace(/^&lt;item\b[\s\S]*?&gt;/,tag=>tag.replace(/&gt;$/,' xmlns:regza=&quot;urn:schemas-toshiba-co-jp:regzadata-1-0&quot;&gt;'));
+      item=item.replace('&lt;/item&gt;',`&lt;regza:network_id&gt;${identity.network}&lt;/regza:network_id&gt;&lt;regza:service_id&gt;${identity.service}&lt;/regza:service_id&gt;&lt;/item&gt;`);
+     }
+    }
     return item;
    })+close);
   }

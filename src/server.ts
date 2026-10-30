@@ -68,7 +68,7 @@ const clientDiagnostics=createClientContractDiagnostics(path.resolve(process.env
 const avcControl=createAvcHttpControl(path.resolve(process.env.PT3_DATA_DIR||'data','avc-http-control'),path.resolve(experimentalCatalogDirectory(),'jit.json'),(message,detail)=>log('AVC_HTTP_CONTROL',message,detail));
 const mpegTsTrial=createMpegTsTrial(path.resolve(process.env.PT3_DATA_DIR||'data','mpeg-ts-trial'),(message,detail)=>log('MPEG_TS_TRIAL',message,detail));
 const pictureTrial=createAvcPictureTrial(path.resolve(process.env.PT3_DATA_DIR||'data','avc-picture-trial'),(message,detail)=>log('AVC_PICTURE_TRIAL',message,detail));
-const recordingDisplayTrial=recordingDidlTrial(process.env.PT3_RECORDING_DIDL_TRIAL==='1');
+const recordingDisplayTrial=recordingDidlTrial(process.env.PT3_RECORDING_DIDL_TRIAL==='1',id=>programs.find(p=>p.id===id)?.metadata);
 const cdEvents=contentDirectoryEvents(async()=>(systemUpdateId+await experimentalCatalog.updateId()+PUBLIC_MENU_REVISION+recordingDisplayTrial.revision)>>>0,(message,detail)=>log('UPNP_EVENT',message,detail));
 function beginTrial(programId?: string, note?: string) {
   trial = { id: randomUUID(), profile: settings.profile, startedAt: new Date().toISOString(), programId, note };
@@ -494,7 +494,7 @@ async function handler(req: IncomingMessage, res: ServerResponse) {
         if(req.method==='GET')return sendJson(res,200,recordingDisplayTrial.status());
         if(req.method!=='POST')return sendJson(res,405,{error:'GET/POST only'});
         if(pcrWork.busy()||activeMediaReads||experimentalCatalog.jitStatus().some(s=>s.active||s.executors))return sendJson(res,409,{error:'Stop playback before changing the presentation trial'});
-        try{const state=recordingDisplayTrial.select(JSON.parse(await body(req,1024)).condition);log('RECORDING_DIDL_TRIAL','Presentation condition selected',state);return sendJson(res,200,state);}catch(e){return sendJson(res,400,{error:String(e)});}
+        try{const input=JSON.parse(await body(req,1024)),state=recordingDisplayTrial.select(input.condition,input.regzaIds===undefined?false:input.regzaIds);log('RECORDING_DIDL_TRIAL','Presentation condition selected',state);return sendJson(res,200,state);}catch(e){return sendJson(res,400,{error:String(e)});}
       }
       if (url.pathname === "/api/status") return sendJson(res, 200, { running: true, productVersion: PRODUCT_VERSION, buildId: process.env.PT3_BUILD_ID ?? null, baseUrl: baseUrl(), settings, trial,recordingDidlTrial:recordingDisplayTrial.status(),
         logStorage: { directory: diskLog.directory, maxBytes: diskLog.maxBytes, archives: diskLog.archives, error: logError },
