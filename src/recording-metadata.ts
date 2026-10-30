@@ -8,6 +8,7 @@ import {PcrDeferred} from './pcr-work.js';
 import {broadcastChannel,type BroadcastChannel,type RecordingRange,type RecordingOrigin} from './recording-si.js';
 
 export type MetadataState = 'pending' | 'confirmed' | 'uncertain' | 'no-eit' | 'error';
+export type ProgrammeEventEvidence={state:'unknown'|'multiple'}|{state:'unique';eventId:number;startTime:string;durationSeconds:number};
 export interface RecordingMetadata {
   state: MetadataState; scannedAt?: string; reason?: string; retryAfter?: number;
   title?: string; description?: string; serviceId?: number; eventId?: number;
@@ -17,7 +18,7 @@ export interface RecordingMetadata {
   station?:string;transportStreamId?:number;originalNetworkId?:number;
   recordingRange?:RecordingRange;
   recordingOrigin?:RecordingOrigin;
-  timelineScope?: {version:1;state:'verified'|'unavailable';pcrPid?:number;serviceId?:number;transportStreamId?:number;originalNetworkId?:number;sourceSize?:number;sourceMtimeMs?:number};
+  timelineScope?: {version:1;state:'verified'|'unavailable';pcrPid?:number;serviceId?:number;transportStreamId?:number;originalNetworkId?:number;sourceSize?:number;sourceMtimeMs?:number;programme?:ProgrammeEventEvidence};
   channelInfo?:BroadcastChannel;
 }
 export type EitScan = Awaited<ReturnType<typeof scanRecordingEit>>;
@@ -38,6 +39,7 @@ export function validMetadata(m: unknown): m is RecordingMetadata {
   if (!m || typeof m !== 'object') return false;
   const v = m as RecordingMetadata;
   if(v.timelineScope!==undefined){const t=v.timelineScope;if(!t||t.version!==1||!['verified','unavailable'].includes(t.state))return false;if(t.state==='verified'&&(![t.pcrPid,t.serviceId,t.transportStreamId,t.originalNetworkId,t.sourceSize].every(n=>Number.isSafeInteger(n)&&n!>=0)||!Number.isFinite(t.sourceMtimeMs)))return false;}
+  if(v.timelineScope?.programme!==undefined){const e=v.timelineScope.programme;if(!e||!['unknown','multiple','unique'].includes(e.state))return false;if(e.state==='unique'&&(!Number.isSafeInteger(e.eventId)||e.eventId<0||e.eventId>65535||!isoTime(e.startTime)||!Number.isFinite(e.durationSeconds)||e.durationSeconds<=0))return false;}
   if (!['pending','confirmed','uncertain','no-eit','error'].includes(v.state)) return false;
   if (['title','description','reason','station'].some(k => (v as any)[k] !== undefined && !text((v as any)[k]))) return false;
   if (v.startTime !== undefined && !isoTime(v.startTime)) return false;
@@ -88,9 +90,22 @@ export function metadataDisplay(p: {title: string; modified: string; genre?: str
     scheduledStartTime:scheduledEnd?broadcastDidlTime(m!.startTime!):undefined,scheduledEndTime:scheduledEnd?broadcastDidlTime(scheduledEnd):undefined,
     genre: m?.genre?.map(n => genreNames[n >> 4] ?? 'その他').filter((v,i,a) => a.indexOf(v) === i).join('、') || p.genre || '' };
 }
+/** Whole-file selection evidence; a longest-overlap primary alone does not exclude two complete programmes. */
+export function programmeEventEvidence(scan:EitScan):ProgrammeEventEvidence{
+ const p=scan.selection?.primary,o=scan.recordingOrigin,r=scan.recordingRange;
+ const origin=o?.state==='estimated'?Date.parse(o.startTime!):r?.state==='consistent'?Date.parse(r.startTime!):NaN;
+ if(!scan.complete||!p||!Number.isFinite(origin)||!(scan.durationSeconds!>0))return {state:'unknown'};
+ const end=origin+scan.durationSeconds!*1000;
+ const full=(scan.selection?.candidates??[]).filter(c=>c.serviceId===p.serviceId&&c.transportStreamId===p.transportStreamId&&c.originalNetworkId===p.originalNetworkId&&c.startTimeMs!==null&&c.durationSeconds!==null&&c.durationSeconds>0&&c.startTimeMs>=origin&&c.startTimeMs+c.durationSeconds*1000<=end);
+ const keys=new Set(full.map(c=>JSON.stringify([c.eventId,c.startTimeMs])));
+ if(keys.size>1)return {state:'multiple'};
+ if(keys.size!==1||!full.some(c=>c.eventId===p.eventId&&c.startTimeMs===p.startTimeMs&&c.durationSeconds===p.durationSeconds))return {state:'unknown'};
+ return {state:'unique',eventId:p.eventId,startTime:new Date(p.startTimeMs!).toISOString(),durationSeconds:p.durationSeconds!};
+}
 function timelineScope(scan:EitScan,serviceId:number|undefined,transportStreamId:number|undefined,originalNetworkId:number|undefined):RecordingMetadata['timelineScope']{
- const verified=scan.clockValid&&scan.scopeConsistent!==false&&scan.patServices?.length===1&&scan.patServices[0]===serviceId&&scan.transportStreamId===transportStreamId&&Number.isInteger(scan.pcrPid)&&scan.pcrPid!>=0&&!!scan.sourceFingerprint&&scan.services?.some(s=>s.serviceId===serviceId&&s.transportStreamId===transportStreamId&&s.originalNetworkId===originalNetworkId);
- return verified?{version:1,state:'verified',pcrPid:scan.pcrPid!,serviceId,transportStreamId,originalNetworkId,sourceSize:scan.sourceFingerprint!.size,sourceMtimeMs:scan.sourceFingerprint!.mtimeMs}:{version:1,state:'unavailable'};
+ const programme=programmeEventEvidence(scan);
+ const verified=scan.complete&&scan.clockValid&&scan.scopeConsistent!==false&&scan.patServices?.length===1&&scan.patServices[0]===serviceId&&scan.transportStreamId===transportStreamId&&Number.isInteger(scan.pcrPid)&&scan.pcrPid!>=0&&!!scan.sourceFingerprint&&scan.services?.some(s=>s.serviceId===serviceId&&s.transportStreamId===transportStreamId&&s.originalNetworkId===originalNetworkId);
+ return verified?{version:1,state:'verified',pcrPid:scan.pcrPid!,serviceId,transportStreamId,originalNetworkId,sourceSize:scan.sourceFingerprint!.size,sourceMtimeMs:scan.sourceFingerprint!.mtimeMs,programme}:{version:1,state:'unavailable',programme};
 }
 export function summarizeEit(scan: EitScan): RecordingMetadata {
   const primary = scan.selection?.primary;
@@ -160,22 +175,27 @@ export class RecordingMetadataCache {
     const missingOrigin=reusable&&r.metadata.recordingRange?.state==='inconsistent'&&!r.metadata.recordingOrigin;
     const channel=r?.metadata.channelInfo;
     const missingChannel=reusable&&(!channel||channel.state==='unavailable'&&channel.reason==='nit-missing-or-conflicting'&&channel.nitParserVersion!==2);
-    const missingTimeline=reusable&&process.env.PT3_PROGRAMME_TIMELINE==='1'&&r.metadata.state==='confirmed'&&!r.metadata.timelineScope;
+    const missingTimeline=reusable&&process.env.PT3_PROGRAMME_TIMELINE==='1'&&r.metadata.state==='confirmed'&&r.metadata.timelineScope?.programme===undefined;
     const backfill=reusable&&r.metadata.state==='confirmed'&&(missingOrigin||missingChannel||missingTimeline);
     if(reusable&&!backfill)return {metadata:r.metadata,cached:true};
     let metadata: RecordingMetadata;
-    if(backfill){
+    if(missingTimeline){
+      // Old summaries did not retain the full candidate set. A prefix cannot prove
+      // that another complete programme is absent: use the existing low-priority
+      // full scanner once, rather than silently blessing prefix-only evidence.
+      try{metadata=summarizeEit(await this.strategy(source,options));}
+      catch(e){if(e instanceof PcrDeferred||(e as Error).name==='AbortError')throw e;metadata={state:'error',scannedAt:new Date().toISOString(),reason:String(e).slice(0,8192).replace(/[\u0000-\u001f\ufffd]/g,' ')};}
+    }
+    else if(backfill){
       // Prior full-scan cache already proves the whole PCR clock and source scope.
       // Read at most a bounded prefix for the missing origin; retain full EIT.
       try{const prefix=await this.strategy(source,{...options,maxBytes:64*1024**2});
         const sameScope=prefix.clockValid&&prefix.scopeConsistent!==false&&prefix.patServices?.length===1&&prefix.patServices[0]===r.metadata.serviceId&&prefix.transportStreamId===r.metadata.transportStreamId&&prefix.services.some(s=>s.serviceId===r.metadata.serviceId&&s.transportStreamId===r.metadata.transportStreamId&&s.originalNetworkId===r.metadata.originalNetworkId);
         if(missingOrigin&&sameScope&&prefix.recordingOrigin?.reason==='initial-window-not-observed')metadata=summarizeEit(await this.strategy(source,options));
         else metadata={...r.metadata,
-          ...(missingTimeline&&{timelineScope:sameScope?timelineScope(prefix,r.metadata.serviceId,r.metadata.transportStreamId,r.metadata.originalNetworkId):{version:1 as const,state:'unavailable' as const}}),
           ...(missingOrigin&&{recordingOrigin:sameScope&&prefix.recordingOrigin?prefix.recordingOrigin:{version:1 as const,basis:'tot-pcr-prefix' as const,state:'unavailable' as const,anchors:0,reason:'prefix-scope-mismatch'}}),
           ...(missingChannel&&{channelInfo:sameScope?broadcastChannel(prefix.services.find(s=>s.serviceId===r.metadata.serviceId&&s.transportStreamId===r.metadata.transportStreamId&&s.originalNetworkId===r.metadata.originalNetworkId),prefix.networks??[]):{version:1 as const,state:'unavailable' as const,reason:'prefix-scope-mismatch'}})};
       }catch(e){if(e instanceof PcrDeferred||(e as Error).name==='AbortError')throw e;metadata={...r.metadata,
-        ...(missingTimeline&&{timelineScope:{version:1 as const,state:'unavailable' as const}}),
         ...(missingOrigin&&{recordingOrigin:{version:1 as const,basis:'tot-pcr-prefix' as const,state:'unavailable' as const,anchors:0,reason:'prefix-read-failed'}}),
         ...(missingChannel&&{channelInfo:{version:1 as const,state:'unavailable' as const,reason:'prefix-read-failed'}})};}
     }

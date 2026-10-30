@@ -243,7 +243,7 @@ async function serveMedia(req: IncomingMessage, res: ServerResponse, id: string,
   if(programmeRevision&&(!programme||!pcrIndex||programmePlan({...p,metadata:programme.metadata},pcrIndex,profile,st)?.revision!==programmeRevision))return sendJson(res,410,{error:'Programme resource expired; Browse again'});
   const contentPacket = encapsulated ? contentPacketLayout(payloadSize, payloadBitrate) : null;
   const servedSize = programme?.size ?? contentPacket?.servedBytes ?? payloadSize;
-  const pacingBitrate = payloadBitrate * servedSize / payloadSize;
+  const pacingBitrate = payloadBitrate * servedSize / (programme ? (programme.last-programme.first)*192 : payloadSize);
   let timeSlice: ReturnType<typeof timeSeekSlice> | null = null;
   let seekDuration: number | null = null;
   if (timeSeekEnabled) {
@@ -295,7 +295,7 @@ async function serveMedia(req: IncomingMessage, res: ServerResponse, id: string,
     ...(range ? { "Content-Range": `bytes ${start}-${end}/${servedSize}` } : {})
   };
 
-  if(programme){const current=await fs.stat(p.filePath);if(current.size!==st.size||current.mtimeMs!==st.mtimeMs)return sendJson(res,410,{error:'Programme source changed'});}
+  if(programme){const current=safeStat(p.filePath);if(!current||current.size!==st.size||current.mtimeMs!==st.mtimeMs)return sendJson(res,410,{error:'Programme source changed'});}
   res.writeHead(status, responseHeaders);
   // Observation only: runs once AFTER finish/close, never awaited or used by delivery.
   if (process.env.PT3_SHADOW_DISABLED !== '1') attachShadow(res, { fingerprint: { path: path.resolve(p.filePath), size: st.size, mtimeMs: st.mtimeMs },
@@ -459,7 +459,7 @@ async function handler(req: IncomingMessage, res: ServerResponse) {
   if(/^\/(?:api\/dbr-color-trial(?:\/|$)|dbr-color-trial(?:[./]|$))/i.test(url.pathname))return sendJson(res,404,{error:'Not found'});
   const deviceRoute=/^\/(?:upnp\/|media\/|library\/|experimental\/|client-diagnostic\/|avc-http-control\/|avc-picture-trial\/|mpeg-ts-trial\/)/.test(url.pathname);
   if(!deviceRoute){const denied=managementAccess(req,boundPort||settings.port);if(denied)return sendJson(res,403,{error:denied});res.setHeader('X-Frame-Options','DENY');res.setHeader('X-Content-Type-Options','nosniff');res.setHeader('Content-Security-Policy',"frame-ancestors 'none'; base-uri 'none'");}
-  if(req.method==='GET'&&/^\/(?:media\/|library\/(?:jit|direct)\/|experimental\/|client-diagnostic\/media\/|avc-http-control\/media\/|avc-picture-trial\/media\/|mpeg-ts-trial\/media\/)/.test(url.pathname)){
+  if(req.method==='GET'&&/^\/(?:media\/|programme-v1\/|library\/(?:jit|direct)\/|experimental\/|client-diagnostic\/media\/|avc-http-control\/media\/|avc-picture-trial\/media\/|mpeg-ts-trial\/media\/)/.test(url.pathname)){
     activeMediaReads++;let released=false;const release=()=>{if(!released){released=true;activeMediaReads--;}};res.once('close',release);res.once('finish',release);
   }
   if (!sockets.has(req.socket)) sockets.set(req.socket, randomUUID());
@@ -469,7 +469,7 @@ async function handler(req: IncomingMessage, res: ServerResponse) {
     const release=pcrWork.reserve();res.once('close',release);res.once('finish',release);
   }
   try{const observed=familyShadow.observe(ip,req.headers);if(observed)log('CLIENT_FAMILY_SHADOW','Implementation family observation',{...observed,request:requests.get(req)});}catch{}
-  if(/^\/(?:media\/|library\/(?:jit|direct)\/|experimental\/(?:media|jit|catalog-jit)\/|client-diagnostic\/media\/|avc-http-control\/media\/|avc-picture-trial\/media\/|mpeg-ts-trial\/media\/)/.test(url.pathname))
+  if(/^\/(?:media\/|programme-v1\/|library\/(?:jit|direct)\/|experimental\/(?:media|jit|catalog-jit)\/|client-diagnostic\/media\/|avc-http-control\/media\/|avc-picture-trial\/media\/|mpeg-ts-trial\/media\/)/.test(url.pathname))
     observeHttpTransfer(req,res,(event,detail)=>log('HTTP_TRANSFER',event,detail,req));
   try {
     if (url.pathname.startsWith("/api/")) {

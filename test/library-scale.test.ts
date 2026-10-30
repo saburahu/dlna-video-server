@@ -56,7 +56,7 @@ test('PCR永続キャッシュ: 並行要求統合/プロセス再起動/更新/
   assert.deepEqual((await fs.readdir(media)).sort(), ['fixture.ts']);
 });
 
-test('実HTTP: 5000録画のBrowseはページ内もPCR解析しない; GETで初めて索引を生成する', { timeout: 60000 }, async t => {
+test('実HTTP: 5000録画のBrowseはページ内もPCR解析しない; GETで初めて索引を生成する', { timeout: 120000 }, async t => {
   const dir = await fs.mkdtemp(path.join(tmpdir(), 'pt3-library-http-'));
   const data = path.join(dir, 'data'), media = path.join(dir, 'media'); await fs.mkdir(data); await fs.mkdir(media);
   const fixture = path.join(dir, 'generated.ts'); await fs.writeFile(fixture, syntheticTs(200, 5000));
@@ -74,7 +74,9 @@ test('実HTTP: 5000録画のBrowseはページ内もPCR解析しない; GETで�
   const child = spawn(process.execPath, ['--import', 'tsx', 'src/server.ts'], { cwd: process.cwd(), env: { ...process.env, PT3_DATA_DIR: data, PT3_LOG_DIR: path.join(dir, 'logs'), PT3_DISABLE_SSDP: '1' }, stdio: ['ignore', 'pipe', 'pipe'] });
   t.after(async () => { if (child.exitCode === null) { const ended = once(child, 'exit'); child.kill(); await ended; } await fs.rm(dir, { recursive: true, force: true }); });
   const base = await new Promise<string>((resolve, reject) => {
-    let output = ''; const timer = setTimeout(() => reject(new Error(output)), 30000);
+    // Baseline and current NTFS cold-cache metadata lookups can exceed 30s for 5000 entries.
+    // This is a startup wait budget, not a relaxation of the no-PCR/Browse/GET assertions.
+    let output = ''; const timer = setTimeout(() => reject(new Error('Server readiness exceeded 60s: '+output)), 60000);
     const consume = (chunk: Buffer) => { output += chunk.toString(); const match = /http:\/\/(?:localhost|127\.0\.0\.1):\d+/.exec(output); if (match) { clearTimeout(timer); resolve(match[0].replace('localhost', '127.0.0.1')); } };
     child.stdout.on('data', consume); child.stderr.on('data', consume); child.once('error', e => { clearTimeout(timer); reject(e); }); child.once('exit', code => { clearTimeout(timer); reject(new Error(`exit ${code}: ${output}`)); });
   });

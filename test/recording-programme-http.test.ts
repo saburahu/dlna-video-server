@@ -47,13 +47,14 @@ test('OFF -> automatic programme publication, old aliases, source bytes, seeks, 
     await stop();
     await start(true);
     let xml = '';
-    for (let i = 0; i < 250; i++) {
+    const publishDeadline=Date.now()+45000;
+    while (Date.now()<publishDeadline) {
         xml = await browse('all');
         if (xml.includes('/programme-v1/'))
             break;
         await sleep(30);
     }
-    assert.ok(xml.includes('/programme-v1/'), xml);
+    assert.ok(xml.includes('/programme-v1/'),xml+JSON.stringify({pcr:await fetch(base+'/api/pcr-cache').then(r=>r.json()),tail:(await fs.readFile(path.join(root,'logs','diagnostics.jsonl'),'utf8')).split(/\r?\n/).slice(-25)}));
     assert.match(xml, /<item\b[^>]*id=/, xml);
     const newId = /<item[^>]* id="([^"]+)/.exec(xml)![1], newPath = new URL(/<res\b[^>]*>([^<]+)/.exec(xml)![1]);
     assert.ok(newId.startsWith('programme:'));
@@ -86,6 +87,8 @@ test('OFF -> automatic programme publication, old aliases, source bytes, seeks, 
         assert.deepEqual(raw, bytes.subarray(firstPacket * 188, firstPacket * 188 + raw.length));
         assert.equal(wire.length, Number(r.headers.get('content-length')));
     }
+    const mediaLogs=(await fs.readFile(path.join(root,'logs','diagnostics.jsonl'),'utf8')).trim().split(/\r?\n/).map(s=>JSON.parse(s)).filter(e=>e.category==='HTTP_MEDIA'&&e.url?.startsWith('/programme-v1/'));assert.ok(mediaLogs.length);for(const e of mediaLogs){const d=e.detail;assert.equal(d.pacingMode,'local-pcr');assert.ok(d.wholeFileBitsPerSecond>d.encapsulation.payloadBitsPerSecond,'content-packet overhead must not be reduced by excluded recording margins');assert.ok(Math.abs(d.wholeFileBitsPerSecond-d.encapsulation.payloadBitsPerSecond*d.encapsulation.servedBytes/d.encapsulation.payloadBytes)<0.0001);}
+    const transfers=(await fs.readFile(path.join(root,'logs','diagnostics.jsonl'),'utf8')).trim().split(/\r?\n/).map(s=>JSON.parse(s));assert.ok(transfers.some(e=>e.category==='HTTP_TRANSFER'&&e.url?.startsWith('/programme-v1/')&&e.message==='HTTP_TRANSFER_FINISH'&&e.detail.completed));
     let folder = '';
     for (let i = 0; i < 200; i++) {
         folder = await browse('folders');
@@ -133,7 +136,7 @@ test('OFF -> automatic programme publication, old aliases, source bytes, seeks, 
             break;
         await sleep(50);
     }
-    assert.ok((await browse('all')).includes('/programme-v1/'));
+    assert.ok((await browse('all')).includes('/programme-v1/'),JSON.stringify({pcr:await fetch(base+'/api/pcr-cache').then(r=>r.json()),tail:(await fs.readFile(path.join(root,'logs','diagnostics.jsonl'),'utf8')).split(/\r?\n/).slice(-25)}));
     const afterUpdate = Number(/<Id>(\d+)/.exec(await fetch(base + '/upnp/control/content-directory', { method: 'POST', headers: { SOAPAction: '"urn:schemas-upnp-org:service:ContentDirectory:1#GetSystemUpdateID"' } }).then(r => r.text()))![1]);
     assert.ok(afterUpdate > beforeUpdate);
     for (let i = 0; i < 150 && !notify.some(n => n.includes('<SystemUpdateID>' + afterUpdate + '</SystemUpdateID>')); i++)
@@ -149,6 +152,7 @@ test('OFF -> automatic programme publication, old aliases, source bytes, seeks, 
     await oldReader.cancel().catch(() => { });
     await sleep(100);
     assert.equal((await fetch(base + '/api/pcr-cache').then(r => r.json())).work.mediaRequests, 0);
+    await fs.rename(source,source+'.temporarily-missing');try{const missing=await fetch(url());assert.ok([403,404,410].includes(missing.status),'missing source must be refused; Public containment may return 403 before shared 404/410');await missing.arrayBuffer();assert.equal((await fetch(base+'/api/status').then(r=>r.json())).running,true);}finally{await fs.rename(source+'.temporarily-missing',source);}
     const oldHead = await fetch(base + oldPath.pathname + oldPath.search, { method: 'HEAD' });
     assert.equal(oldHead.status, 200);
     assert.ok(oldHead.headers.get('timeseekrange.dlna.org')!.includes('/60.000'));

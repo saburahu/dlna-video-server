@@ -1,0 +1,9 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {programmeEventEvidence,type EitScan} from '../src/recording-metadata.js';
+import type {EventCandidate} from '../src/recording-event.js';
+const start=Date.UTC(2026,0,1);
+function event(id:number,seconds:number,duration:number,serviceId=1):EventCandidate{return {eventId:id,serviceId,transportStreamId:100,originalNetworkId:100,startTimeMs:start+seconds*1000,durationSeconds:duration,durationHistorySeconds:[duration],present:{count:1,recordingSeconds:[0],observedTimeMs:[null]},following:{count:0,recordingSeconds:[],observedTimeMs:[]},presentIntervals:[],observedPresentSeconds:0,overlapSeconds:null};}
+function scan(candidates:EventCandidate[],primary=candidates[0]):EitScan{return {complete:true,durationSeconds:200,recordingOrigin:{state:'estimated',startTime:new Date(start).toISOString()},selection:{candidates,primary}} as unknown as EitScan;}
+test('full event evidence keeps margins but rejects two complete programmes even with a longer unique primary',()=>{const main=event(2,10,180),before=event(1,-100,110),after=event(3,190,100);assert.equal(programmeEventEvidence(scan([before,main,after],main)).state,'unique');const longer=event(4,10,100),shorter=event(5,110,60);assert.equal(programmeEventEvidence(scan([longer,shorter],longer)).state,'multiple');assert.equal(programmeEventEvidence(scan([main,{...main},event(9,50,10,2)],main)).state,'unique');});
+test('event evidence requires full observation, a usable origin and the selected complete event',()=>{const main=event(2,10,180),partial={...scan([main]),complete:false};assert.equal(programmeEventEvidence(partial).state,'unknown');const absent=scan([main]);delete (absent as any).recordingOrigin;assert.equal(programmeEventEvidence(absent).state,'unknown');assert.equal(programmeEventEvidence(scan([main],event(3,-10,220))).state,'unknown');assert.equal(programmeEventEvidence(scan([event(3,-10,220)])).state,'unknown');});

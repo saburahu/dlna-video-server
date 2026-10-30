@@ -40,6 +40,7 @@ receiver resume positions from old whole-recording positions.
 
 Use confirmed full-scan/reservation event selection, exact service/TSID/ONID scope,
 single-service PAT evidence, source size/mtime, PCR PID, continuous whole PCR index,
+whole-file event-set evidence identifying exactly one fully recorded selected event,
 identified broadcast service, a stable file, and a completely recorded programme.
 The current output transport is the existing buffered 188-to-192 TS profile.
 No filename, receiver model, UDN or sample fingerprint is an input permit.
@@ -58,6 +59,10 @@ For eligible content:
 
     source NPT = programme NPT + (scheduled start - recording origin)
 
+Programme resources retain the existing time-seek-only (OP10) transport contract.
+The existing Content Packet handler rejects byte Range requests with 400; no
+additional byte-seek capability is advertised or introduced.
+
 The chosen source packet and response NPT agree. Content Packet alignment is local
 to the programme view. Its duration, size, HEAD, GET and TimeSeekRange use the same
 bounds. PCR/PTS, TTS generation and pacing are not rewritten to fake an origin.
@@ -73,9 +78,14 @@ recording-origin date. recordedStartDateTime is not added by this feature.
 Descriptors resolve metadata by source identity; the new resource prefix does
 not rely on the old development URL-guessing hook.
 
-The existing low-priority metadata worker backfills missing transport scope with
-at most a bounded prefix read, reusing valid EIT results and PCR caches. Unknown
-scope markers prevent repeated unsupported probing. No cache schema bump or new
+The existing low-priority metadata worker reuses valid PCR caches. Older summaries
+only retained the primary event, which cannot exclude a second complete programme.
+When full event-set evidence is missing, enabling this development feature requires
+one whole-file EIT pass through that same bounded/serial/playback-prioritized worker.
+A prefix is not accepted as proof that another programme is absent. Existing origin
+and channel-only supplementation can still use its bounded prefix. Unknown or
+multiple-event evidence falls back to whole recording and is retained to avoid
+repeating unsupported work. No cache schema bump or new
 database is introduced; added optional schema-2 metadata remains readable by older
 software. Original cache files are not rewritten merely by Browse.
 

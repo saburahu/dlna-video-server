@@ -56,6 +56,8 @@ export function programmePlan(p: Program, index: PcrIndex, profile: Profile, st:
     const scope = m.timelineScope;
     if (!scope || scope.state !== 'verified' || scope.sourceSize !== st.size || scope.sourceMtimeMs !== st.mtimeMs || scope.pcrPid !== index.pid || scope.serviceId !== m.serviceId || scope.transportStreamId !== m.transportStreamId || scope.originalNetworkId !== m.originalNetworkId)
         return;
+    const event=scope.programme;
+    if(event?.state!=='unique'||event.eventId!==m.eventId||event.startTime!==m.startTime||event.durationSeconds!==m.durationSeconds)return;
     const r = m.recordingRange, o = m.recordingOrigin, identity = regzaRecordingIdentity(m);
     if (!r || r.segments !== 1 || r.anchorCount < 3 || !identity)
         return;
@@ -79,8 +81,8 @@ export function programmePlan(p: Program, index: PcrIndex, profile: Profile, st:
     if (last <= first)
         return;
     const blockBytes = contentPacketLayout(index.packetCount * 192, index.averageBitrate * 192 / 188).blockBytes, payload = (last - first) * 192, duration = packetTime(index, last) - origin;
-    const event = hash([m.originalNetworkId, m.transportStreamId, m.serviceId, m.eventId, m.startTime]), revision = hash([1, p.id, st.size, st.mtimeMs, origin, first, last, blockBytes, index.pid, hash(index.points), profile]);
-    return { metadata: m, id: `programme:${p.id}:${event}`, revision, sourceId: p.id, origin, first, last, duration, size: payload + Math.ceil(payload / blockBytes) * 14, blockBytes, date: new Date(Date.parse(m.startTime) + 9 * 3600000).toISOString().replace('Z', '+09:00'), ...identity };
+    const eventKey = hash([m.originalNetworkId, m.transportStreamId, m.serviceId, m.eventId, m.startTime]), revision = hash([1, eventKey, p.id, st.size, st.mtimeMs, origin, first, last, blockBytes, index.pid, hash(index.points), profile]);
+    return { metadata: m, id: `programme:${p.id}:${eventKey}`, revision, sourceId: p.id, origin, first, last, duration, size: payload + Math.ceil(payload / blockBytes) * 14, blockBytes, date: new Date(Date.parse(m.startTime) + 9 * 3600000).toISOString().replace('Z', '+09:00'), ...identity };
 }
 export function programmeSlice(index: PcrIndex, p: Programme, header?: string) {
     const requested = header ? parseTimeSeek(header, p.duration) : { start: 0, end: p.duration }, per = p.blockBytes / 192, firstPacket = Math.max(p.first, p.first + Math.floor((at(index, requested.start + p.origin) - p.first) / per) * per), endPacket = Math.min(p.last, Math.max(firstPacket + per, p.first + Math.ceil((at(index, requested.end + p.origin) - p.first + (requested.end < p.duration ? 1 : 0)) / per) * per)), payloadBytes = (endPacket - firstPacket) * 192;
