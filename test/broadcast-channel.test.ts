@@ -7,6 +7,10 @@ test('NIT actual/current, CRC, bounded loops and remote key/service membership',
  const other=nit();other[0]=0x41;assert.deepEqual(parseNit(other),[]);const next=nit();next[5]&=254;assert.deepEqual(parseNit(next),[]);
  const bad=nit();bad[14]^=1;assert.throws(()=>parseNit(bad));const malformed=nit();malformed[17]=255;assert.throws(()=>parseNit(reseal(malformed)));
 });
+test('TS information accepts reserved tail bytes but does not let them hide a truncated counted transmission',()=>{
+ const s=nit(1048,32739,32739,6,Buffer.from([255])),rows=parseNit(s);assert.equal(rows[0].remoteControlKeyId,6);assert.deepEqual(rows[0].remoteServices,[1048]);assert.equal(broadcastChannel(service(1048,32739,32739),rows).channelNr,60610);
+ const broken=Buffer.from(s),d=broken.indexOf(Buffer.from([0xcd,7]));assert(d>=0);broken[d+3]=(broken[d+3]&252)|2;assert.throws(()=>parseNit(reseal(broken)),/Invalid TS transmission/);
+});
 test('terrestrial channel encoding follows SID service bits, NIT default key and branch zero, not station names',()=>{
  for(const [sid,tsid,key,want]of [[1048,32739,6,60610],[23608,32391,9,90910],[1072,32742,7,70710],[1049,32739,6,60620]]){
   const channel=broadcastChannel(service(sid,tsid,tsid),parseNit(nit(sid,tsid,tsid,key)));assert.deepEqual(channel,{version:1,state:'identified',objectType:'ARIB_TB',channelNr:want});
@@ -38,4 +42,11 @@ test('old schema2 gains channel info by one bounded prefix while preserving EIT 
  const c=new RecordingMetadataCache(directory,async(file,options)=>{calls++;const s=await scanRecordingEit(file);if(options?.maxBytes){assert.equal(options.maxBytes,64*1024**2);s.complete=false;for(const r of s.records)for(const u of r.updates)u.event.title='partial event must not replace full EIT';}return s;});
  const original=(await c.analyze(source)).metadata,file=path.join(directory,(await fs.readdir(directory))[0]),row=JSON.parse(await fs.readFile(file,'utf8'));delete row.metadata.channelInfo;row.sha256=createHash('sha256').update(JSON.stringify(row.metadata)).digest('hex');await fs.writeFile(file,JSON.stringify(row));
  const result=await c.analyze(source);assert.equal(calls,2);assert.equal(result.cached,false);assert.deepEqual(result.metadata.channelInfo,{version:1,state:'identified',objectType:'ARIB_BS',channelNr:10});assert.deepEqual(result.metadata.recordingOrigin,original.recordingOrigin);assert.equal(result.metadata.title,original.title);assert.equal(result.metadata.startTime,original.startTime);assert.equal((await c.analyze(source)).cached,true);assert.equal(calls,2);
+});
+test('old NIT missing/conflict results are rechecked once for parser revision2; genuine absence does not retry forever',async t=>{
+ for(const absent of [false,true]){
+  const root=await fs.mkdtemp(path.join(os.tmpdir(),'channel-revision-')),source=path.join(root,'media','source.ts'),directory=path.join(root,'cache');await fs.mkdir(path.dirname(source));await fs.writeFile(source,fixture());await fs.utimes(source,new Date(0),new Date(0));t.after(()=>fs.rm(root,{recursive:true,force:true}));let calls=0;
+  const c=new RecordingMetadataCache(directory,async(file,options)=>{calls++;const s=await scanRecordingEit(file);if(options?.maxBytes){s.complete=false;if(absent)s.networks=[];}return s;});const old=(await c.analyze(source)).metadata,file=path.join(directory,(await fs.readdir(directory))[0]),row=JSON.parse(await fs.readFile(file,'utf8'));row.metadata.channelInfo={version:1,state:'unavailable',reason:'nit-missing-or-conflicting'};row.sha256=createHash('sha256').update(JSON.stringify(row.metadata)).digest('hex');await fs.writeFile(file,JSON.stringify(row));
+  const result=await c.analyze(source);assert.equal(result.cached,false);assert.equal(result.metadata.channelInfo?.state,absent?'unavailable':'identified');if(absent)assert.equal(result.metadata.channelInfo?.nitParserVersion,2);assert.deepEqual(result.metadata.recordingOrigin,old.recordingOrigin);assert.equal(result.metadata.startTime,old.startTime);assert.equal(result.metadata.title,old.title);assert.equal((await c.analyze(source)).cached,true);assert.equal(calls,2);
+ }
 });

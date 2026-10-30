@@ -41,6 +41,7 @@ export function validMetadata(m: unknown): m is RecordingMetadata {
   if (v.startTime !== undefined && !isoTime(v.startTime)) return false;
   if (v.scannedAt !== undefined && !isoTime(v.scannedAt)) return false;
   if(v.channelInfo!==undefined){const c=v.channelInfo;if(!c||c.version!==1||!['identified','unavailable'].includes(c.state)||c.reason!==undefined&&!text(c.reason))return false;
+   if(c.nitParserVersion!==undefined&&c.nitParserVersion!==2)return false;
    if(c.state==='unavailable'&&(c.objectType!==undefined||c.channelNr!==undefined))return false;
    if(c.state==='identified'&&(!['ARIB_TB','ARIB_BS','ARIB_CS'].includes(c.objectType!)||c.channelNr!==undefined&&(!Number.isSafeInteger(c.channelNr)||c.channelNr<10||c.channelNr>129999)))return false;
   }
@@ -150,7 +151,8 @@ export class RecordingMetadataCache {
     if (r?.version===2&&r.metadata.state === 'pending' && (r.metadata.retryAfter ?? 0) > now) return {metadata:{state:'pending',reason:'waiting-for-stable-file',retryAfter:r.metadata.retryAfter} as RecordingMetadata,cached:true};
     const reusable=r?.version===2&&r.size===before.size&&r.mtimeMs===before.mtimeMs&&r.metadata.state!=='pending'&&(!retry||r.metadata.state==='confirmed');
     const missingOrigin=reusable&&r.metadata.recordingRange?.state==='inconsistent'&&!r.metadata.recordingOrigin;
-    const missingChannel=reusable&&!r.metadata.channelInfo;
+    const channel=r?.metadata.channelInfo;
+    const missingChannel=reusable&&(!channel||channel.state==='unavailable'&&channel.reason==='nit-missing-or-conflicting'&&channel.nitParserVersion!==2);
     const backfill=reusable&&r.metadata.state==='confirmed'&&(missingOrigin||missingChannel);
     if(reusable&&!backfill)return {metadata:r.metadata,cached:true};
     let metadata: RecordingMetadata;

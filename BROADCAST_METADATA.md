@@ -92,3 +92,6 @@ channelInfo version1は既存schema2内の小さい補助情報です。旧confi
 - https://www.arib.or.jp/english/html/overview/doc/8-TR-B14v3_8-3p3-E1.pdf
 - https://www.arib.or.jp/english/html/overview/doc/8-TR-B15v4_6-1p4-E1.pdf
 - https://www.arib.or.jp/english/html/overview/doc/6-STD-B21v5_4-E1.pdf
+
+TS情報記述子の伝送種別・サービスループ後にはSTD-B10でreserved_future_useが定義されています。ここを余剰バイトとして拒否していた解析不具合を修正。CRC・長さ・ループ境界・重複記述子の拒否は維持します。旧nit-missing-or-conflicting cacheだけを背景prefixで一度再確認し、なお未観測ならnitParserVersion=2として保存して反復を防ぎます。既存の正しい局情報や録画時計は再解析しません。
+根拠: https://www.arib.or.jp/english/html/overview/doc/6-STD-B10v5_13-E1.pdf （TS information descriptorの予約領域）

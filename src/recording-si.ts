@@ -26,18 +26,20 @@ export function parseNit(s:Buffer):NitTransport[]{
    if(tag===0xcd){
     if(b.length<2)throw Error('Invalid TS information');let n=2+(b[1]>>2);if(n>b.length)throw Error('Invalid TS name');const ids:number[]=[];
     for(let k=0;k<(b[1]&3);k++){if(n+2>b.length)throw Error('Invalid TS transmission');const count=b[n+1];n+=2;if(n+count*2>b.length)throw Error('Invalid TS services');for(let j=0;j<count;j++,n+=2)ids.push(b.readUInt16BE(n));}
-    if(n!==b.length||row.remoteControlKeyId!==undefined)throw Error('Ambiguous TS information');row.remoteControlKeyId=b[0];row.remoteServices=ids;
+    // STD-B10 permits reserved_future_use bytes after the counted service
+    // loops. They are not another transmission and carry no channel meaning.
+    if(row.remoteControlKeyId!==undefined)throw Error('Ambiguous TS information');row.remoteControlKeyId=b[0];row.remoteServices=ids;
    }
   });
   row.delivery=terrestrial&&satellite?'ambiguous':terrestrial?'terrestrial':satellite?'satellite':'unknown';rows.push(row);p=next;
  }return rows;
 }
 export interface BroadcastChannel {
- version:1;state:'identified'|'unavailable';objectType?:'ARIB_TB'|'ARIB_BS'|'ARIB_CS';channelNr?:number;reason?:string;
+ version:1;state:'identified'|'unavailable';objectType?:'ARIB_TB'|'ARIB_BS'|'ARIB_CS';channelNr?:number;reason?:string;nitParserVersion?:2;
 }
 /** ARIB TR-B14/B15 channel encoding. No receiver-specific BS preset mapping. */
 export function broadcastChannel(service:BroadcastService|undefined,networks:NitTransport[]):BroadcastChannel{
- const unavailable=(reason:string):BroadcastChannel=>({version:1,state:'unavailable',reason});if(!service)return unavailable('service-unconfirmed');
+ const unavailable=(reason:string):BroadcastChannel=>({version:1,state:'unavailable',reason,nitParserVersion:2});if(!service)return unavailable('service-unconfirmed');
  const matches=[...new Map(networks.filter(n=>n.transportStreamId===service.transportStreamId&&n.originalNetworkId===service.originalNetworkId&&n.networkId===service.originalNetworkId).map(n=>[JSON.stringify(n),n])).values()];
  if(matches.length!==1)return unavailable('nit-missing-or-conflicting');const n=matches[0],entries=n.services.filter(s=>s.serviceId===service.serviceId);
  if(entries.length!==1||entries[0].serviceType!==1)return unavailable('nit-tv-service-unconfirmed');
