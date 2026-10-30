@@ -14,14 +14,15 @@ export function regzaRecordingIdentity(value:unknown){
  return {network:onid!.toString(16),service:sid!.toString(16)};
 }
 export function recordingDidlTrial(enabled=false,metadata:(id:string)=>unknown=()=>undefined){
- let condition:'A'|'B'|'C'|'D'='A',revision=enabled?1:0,regzaIds=false;
+ let condition:'A'|'B'|'C'|'D'='A',revision=enabled?1:0,regzaIds=false,sceneProgramDate=false;
  return {
   get revision(){return revision;},
-  status:()=>({enabled,condition,revision,regzaIds}),
-  select(value:unknown,ids:unknown=false){
+  status:()=>({enabled,condition,revision,regzaIds,sceneProgramDate}),
+  select(value:unknown,ids:unknown=false,programDate:unknown=false){
    if(!enabled||typeof value!=='string'||!['A','B','C','D'].includes(value))throw Error('Enabled development trial and A/B/C/D required');
    if(typeof ids!=='boolean'||ids&&!['B','D'].includes(value))throw Error('REGZA IDs require videoItem presentation (B or D) and a boolean flag');
-   if(value!==condition||ids!==regzaIds){condition=value as typeof condition;regzaIds=ids;revision++;}
+   if(typeof programDate!=='boolean'||programDate&&!ids)throw Error('Program date comparison requires explicit IDs and a boolean flag');
+   if(value!==condition||ids!==regzaIds||programDate!==sceneProgramDate){condition=value as typeof condition;regzaIds=ids;sceneProgramDate=programDate;revision++;}
    return this.status();
   },
   soap(xml:string,action:string){
@@ -42,6 +43,13 @@ export function recordingDidlTrial(enabled=false,metadata:(id:string)=>unknown=(
      if(identity&&!item.includes('xmlns:regza=')){
       item=item.replace(/^&lt;item\b[\s\S]*?&gt;/,tag=>tag.replace(/&gt;$/,' xmlns:regza=&quot;urn:schemas-toshiba-co-jp:regzadata-1-0&quot;&gt;'));
       item=item.replace('&lt;/item&gt;',`&lt;regza:network_id&gt;${identity.network}&lt;/regza:network_id&gt;&lt;regza:service_id&gt;${identity.service}&lt;/regza:service_id&gt;&lt;/item&gt;`);
+     }
+     // Diagnostic only: this changes the TV's displayed clock origin. It is
+     // NOT a timestamp/Seek correction; source clock/cache/resource stay intact.
+     // Must remain opt-in until the operator authorizes that presentation tradeoff.
+     if(identity&&sceneProgramDate){
+      const start=/&lt;upnp:scheduledStartTime&gt;([\s\S]*?)&lt;\/upnp:scheduledStartTime&gt;/.exec(item)?.[1];
+      if(start&&/^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(?:\.\d{3})?\+09:00$/.test(start)&&Number.isFinite(Date.parse(start)))item=item.replace(/(&lt;dc:date&gt;)[\s\S]*?(&lt;\/dc:date&gt;)/,(_,open,close)=>open+start+close);
      }
     }
     return item;

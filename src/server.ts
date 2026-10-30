@@ -494,7 +494,7 @@ async function handler(req: IncomingMessage, res: ServerResponse) {
         if(req.method==='GET')return sendJson(res,200,recordingDisplayTrial.status());
         if(req.method!=='POST')return sendJson(res,405,{error:'GET/POST only'});
         if(pcrWork.busy()||activeMediaReads||experimentalCatalog.jitStatus().some(s=>s.active||s.executors))return sendJson(res,409,{error:'Stop playback before changing the presentation trial'});
-        try{const input=JSON.parse(await body(req,1024)),state=recordingDisplayTrial.select(input.condition,input.regzaIds===undefined?false:input.regzaIds);log('RECORDING_DIDL_TRIAL','Presentation condition selected',state);return sendJson(res,200,state);}catch(e){return sendJson(res,400,{error:String(e)});}
+        try{const input=JSON.parse(await body(req,1024)),state=recordingDisplayTrial.select(input.condition,input.regzaIds===undefined?false:input.regzaIds,input.sceneProgramDate===undefined?false:input.sceneProgramDate);log('RECORDING_DIDL_TRIAL','Presentation condition selected',state);return sendJson(res,200,state);}catch(e){return sendJson(res,400,{error:String(e)});}
       }
       if (url.pathname === "/api/status") return sendJson(res, 200, { running: true, productVersion: PRODUCT_VERSION, buildId: process.env.PT3_BUILD_ID ?? null, baseUrl: baseUrl(), settings, trial,recordingDidlTrial:recordingDisplayTrial.status(),
         logStorage: { directory: diskLog.directory, maxBytes: diskLog.maxBytes, archives: diskLog.archives, error: logError },

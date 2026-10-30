@@ -13,6 +13,23 @@ test('A/B/C/D alter only intended recording presentation fields and revision',()
  }
  assert.equal(t.soap(base,'GetProtocolInfo'),base);assert.equal(t.soap('<Id>100</Id>','GetSystemUpdateID'),`<Id>${100+t.revision}</Id>`);
 });
+test('scene-date comparison changes dc:date only, preserving recording origin, resource, JST and schedule',()=>{
+ const metadata=identityMetadata(),snapshot=structuredClone(metadata),t=recordingDidlTrial(true,()=>metadata),source=soap(item().replace('/media/opaque','/media/aa11/recording'));
+ for(const condition of ['B','D']){
+  t.select(condition,true);const baseline=t.soap(source,'Browse'),revision=t.revision;t.select(condition,true,true);
+  const expected=baseline.replace(condition==='B'?'2026-10-25T21:44:49.692+09:00':'2026-10-25T21:44:49+09:00',condition==='B'?'2026-10-25T21:45:00.000+09:00':'2026-10-25T21:45:00+09:00').replace(`<UpdateID>${100+revision}</UpdateID>`,`<UpdateID>${100+t.revision}</UpdateID>`);
+  assert.equal(t.soap(source,'Browse'),expected);assert.deepEqual(metadata,snapshot);assert.equal(t.status().sceneProgramDate,true);
+  t.select(condition,true);assert.equal(t.status().sceneProgramDate,false);assert.equal(t.soap(source,'Browse').replace(/<UpdateID>\d+<\/UpdateID>/,''),baseline.replace(/<UpdateID>\d+<\/UpdateID>/,''));
+ }
+ // This is the intended presentation tradeoff, not evidence of correct scene jumps.
+ assert.equal(Date.parse('2026-10-25T21:45:00.000+09:00')-Date.parse('2026-10-25T21:44:49.692+09:00'),10308);
+});
+test('scene-date comparison is off by default and cannot invent a date for uncertain or missing schedules',()=>{
+ assert.equal(recordingDidlTrial(true).status().sceneProgramDate,false);
+ const t=recordingDidlTrial(true,()=>identityMetadata());for(const value of ['true',null,1])assert.throws(()=>t.select('B',true,value));assert.throws(()=>t.select('B',false,true));
+ t.select('B',true,true);for(const raw of [item().replace('/media/opaque','/media/aa11/recording').replace(/<upnp:scheduledStartTime>[\s\S]*?<\/upnp:scheduledStartTime>/,''),item().replace('/media/opaque','/media/aa11/recording').replace('2026-10-25T21:45:00.000+09:00','invalid')])assert.ok(t.soap(soap(raw),'Browse').includes('2026-10-25T21:44:49.692+09:00'));
+ const uncertain=recordingDidlTrial(true,()=>({...identityMetadata(),state:'uncertain'}));uncertain.select('B',true,true);assert.ok(uncertain.soap(soap(item().replace('/media/opaque','/media/aa11/recording')),'Browse').includes('2026-10-25T21:44:49.692+09:00'));
+});
 test('disabled and restarted trials are A; rejected conditions cannot change state',()=>{
  const off=recordingDidlTrial();assert.equal(off.soap(soap(item()),'Browse'),soap(item()));assert.throws(()=>off.select('B'));
  const t=recordingDidlTrial(true);t.select('D');const previous=t.status();for(const invalid of ['E',['B'],null,undefined,1])assert.throws(()=>t.select(invalid));assert.deepEqual(t.status(),previous);assert.equal(recordingDidlTrial(true).status().condition,'A');
