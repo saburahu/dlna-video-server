@@ -24,6 +24,7 @@
     "WMA_PRO_AUTOMATIC_INPUT.md",
     "docs/ARCHITECTURE.md",
     "docs/BRANDING.md",
+    "docs/CACHE-STARTUP-045.md",
     "docs/CLIENT-DISCOVERY.md",
     "docs/COMPATIBILITY.md",
     "docs/DEVELOPMENT.md",
@@ -343,6 +344,7 @@
     "test/library-scale.test.ts",
     "test/management-access.test.ts",
     "test/media-catalog-index.test.ts",
+    "test/metadata-startup.test.ts",
     "test/mpeg-ts-trial.test.ts",
     "test/mpeg2-color-normalization.test.ts",
     "test/mpeg2-jit-target.test.ts",
@@ -352,6 +354,7 @@
     "test/pcr-browse-http.test.ts",
     "test/pcr-browse-summary.test.ts",
     "test/pcr-index.test.ts",
+    "test/pcr-inventory-startup.test.ts",
     "test/pcr-management-http.test.ts",
     "test/pcr-retention.test.ts",
     "test/pcr-seekbar-http.test.ts",
@@ -420,7 +423,9 @@
     "third-party/typescript/ThirdPartyNoticeText.txt",
     "third-party/undici-types/LICENSE",
     "tools/audit-public.mjs",
+    "tools/benchmark-startup.mjs",
     "tools/install-push-guard.mjs",
+    "tools/startup-observer.mjs",
     "tools/verify-dual-audio.mjs",
     "tools/verify-synthetic.mjs",
     "tsconfig.build.json",
@@ -439,7 +444,7 @@
         "X9900R",
         "DBR-T1010"
       ],
-      "sha256": "36b3d251a0c166ac185615b9df77b30630fe24680dd9810f659860032bbc17dc"
+      "sha256": "44efb214abd3b9efb10d1e9ad4a677319306c47c9b9c7497aae6c6aea98a2f5c"
     },
     "docs/PROGRAMME-TIMELINE.md": {
       "models": [

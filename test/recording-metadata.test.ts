@@ -22,6 +22,19 @@ async function setup(t: any, strategy: (file:string)=>Promise<EitScan> = async()
   const folder=path.join(dir,'recordings');await fs.mkdir(folder);const file=path.join(folder,'sample.ts');await fs.writeFile(file,Buffer.alloc(18800,0x47));
   await fs.utimes(file,new Date(0),new Date(0));return {dir,file,cache:new RecordingMetadataCache(path.join(dir,'cache'),strategy,[folder])};
 }
+test('default programme mode backfills old evidence once; explicit OFF retains cached whole-file metadata',async t=>{
+ const env=process.env.PT3_PROGRAMME_TIMELINE;let calls=0;
+ try{
+  process.env.PT3_PROGRAMME_TIMELINE='0';
+  const {cache,file}=await setup(t,async()=>{calls++;return scan()});
+  assert.equal((await cache.analyze(file)).metadata.timelineScope,undefined);
+  assert.equal((await cache.analyze(file)).cached,true);assert.equal(calls,1);
+  delete process.env.PT3_PROGRAMME_TIMELINE;
+  const upgraded=await cache.analyze(file);assert.equal(upgraded.cached,false);assert.ok(upgraded.metadata.timelineScope?.programme);
+  assert.equal((await cache.analyze(file)).cached,true);assert.equal(calls,2);
+ }finally{if(env===undefined)delete process.env.PT3_PROGRAMME_TIMELINE;else process.env.PT3_PROGRAMME_TIMELINE=env;}
+});
+
 test('metadata cache persists compact result; subsequent instance/list lookup never scans',async t=>{
   let calls=0;const {dir,file,cache}=await setup(t,async()=>{calls++;return scan()});
   const before=await fs.readFile(file),st=await fs.stat(file);

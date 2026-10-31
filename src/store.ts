@@ -61,8 +61,6 @@ export function applyRecordingMetadata(source:string,metadata:RecordingMetadata,
  return changed;
 }
 
-
-
 async function readJson<T>(file: string, fallback: T): Promise<T> {
   try { return JSON.parse(await fs.readFile(file, "utf8")) as T; } catch { return fallback; }
 }
@@ -83,12 +81,20 @@ export async function savePrograms() {
 /** Reads only stat and cached JSON; never scans EIT. */
 export async function refreshMetadata(persist = true) {
   const cache = new RecordingMetadataCache(path.join(dataDir, "eit-cache"), undefined, settings.folders);
-  for (const p of programs) {
+  // Bound filesystem concurrency; do not publish a partially loaded library or
+  // retain source/cache results across refreshes. Preserve array order and the
+  // guard against a background metadata publication replacing a newer result.
+  const snapshot = programs;
+  let next = 0;
+  await Promise.all(Array.from({length:Math.min(8,snapshot.length)},async()=>{
+   while(next < snapshot.length){
+    const p = snapshot[next++];
     p.originalFilename = path.basename(p.filePath);
     const previous=p.metadata,metadata=await cache.lookup(p.filePath);
     if(p.metadata===previous){stationFromMetadata(p,metadata);p.metadata=metadata;}
     p.displayTitle = metadataDisplay(p).title;
-  }
+   }
+  }));
   systemUpdateId++;
   if (persist) await savePrograms();
   return programs;

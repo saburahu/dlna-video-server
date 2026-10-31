@@ -125,7 +125,7 @@ export function summarizeEit(scan: EitScan): RecordingMetadata {
     ...(station&&{station:station.name,serviceId:station.serviceId,transportStreamId:station.transportStreamId,originalNetworkId:station.originalNetworkId}),
     ...(scan.complete&&{channelInfo:broadcastChannel(station,scan.networks??[])}),
     ...(scan.recordingRange&&{recordingRange:scan.recordingRange}),
-    ...(process.env.PT3_PROGRAMME_TIMELINE==='1'&&{timelineScope:timelineScope(scan,serviceId??undefined,station?.transportStreamId??primary?.transportStreamId,station?.originalNetworkId??primary?.originalNetworkId)}),
+    ...(process.env.PT3_PROGRAMME_TIMELINE!=='0'&&{timelineScope:timelineScope(scan,serviceId??undefined,station?.transportStreamId??primary?.transportStreamId,station?.originalNetworkId??primary?.originalNetworkId)}),
     ...(scan.complete&&scan.recordingOrigin&&{recordingOrigin:scan.recordingOrigin}),
     ...(primary && {serviceId: primary.serviceId, eventId: primary.eventId,
       ...(primary.startTimeMs !== null && {startTime: new Date(primary.startTimeMs).toISOString()}),
@@ -145,9 +145,12 @@ export class RecordingMetadataCache {
   private async filename(source: string) { return path.join(this.directory, digest(await this.identity(source)) + '.json'); }
   private separate(source: string) { new DiagnosticLog(this.directory).assertSeparate([...this.folders, path.dirname(path.resolve(source))]); }
   private async record(source: string): Promise<CacheRecord | undefined> {
-    try { this.separate(source); const identity=await this.identity(source);let file = await this.filename(source);
-      try{await fs.stat(file);}catch(e:any){if(e.code!=='ENOENT')throw e;file=path.join(this.directory,digest(path.resolve(source))+'.json');}
-      if ((await fs.stat(file)).size > MAX_CACHE_BYTES) return;
+    try { this.separate(source); const identity=await this.identity(source);
+      // Reuse this lookup's identity and file stat, not a process-wide cache.
+      // Every lookup still verifies the source version after reading the JSON.
+      let file = path.join(this.directory,digest(identity)+'.json'),stat;
+      try{stat=await fs.stat(file);}catch(e:any){if(e.code!=='ENOENT')throw e;file=path.join(this.directory,digest(path.resolve(source))+'.json');stat=await fs.stat(file);}
+      if (stat.size > MAX_CACHE_BYTES) return;
       const r = JSON.parse(await fs.readFile(file, 'utf8')) as CacheRecord;
       if ((r.version===2&&r.identity===identity||r.version===1&&r.source===path.resolve(source)) && Number.isFinite(r.size) && Number.isFinite(r.mtimeMs) && validMetadata(r.metadata) && r.sha256 === digest(JSON.stringify(r.metadata))) return r;
     } catch {} return;
@@ -155,7 +158,12 @@ export class RecordingMetadataCache {
   /** Only stat + small JSON: never invokes the scan strategy. */
   async lookup(source: string): Promise<RecordingMetadata> {
     try { const r = await this.record(source), st = await fs.stat(source);
-      if (r && r.size === st.size && r.mtimeMs === st.mtimeMs) return r.version===2?r.metadata:{state:'pending',reason:'schema-upgrade'};
+      if (r && r.size === st.size && r.mtimeMs === st.mtimeMs) {
+        // Recheck physical identity after the JSON read as well: replacement
+        // files can have the same size and restored mtime, including aliases.
+        if(r.version===2&&r.identity!==await this.identity(source))return {state:'pending',reason:'file-changed'};
+        return r.version===2?r.metadata:{state:'pending',reason:'schema-upgrade'};
+      }
       return {state:'pending', reason:r ? 'file-changed' : 'not-scanned'};
     } catch { return {state:'error',reason:'file-unavailable'}; }
   }
@@ -175,7 +183,7 @@ export class RecordingMetadataCache {
     const missingOrigin=reusable&&r.metadata.recordingRange?.state==='inconsistent'&&!r.metadata.recordingOrigin;
     const channel=r?.metadata.channelInfo;
     const missingChannel=reusable&&(!channel||channel.state==='unavailable'&&channel.reason==='nit-missing-or-conflicting'&&channel.nitParserVersion!==2);
-    const missingTimeline=reusable&&process.env.PT3_PROGRAMME_TIMELINE==='1'&&r.metadata.state==='confirmed'&&r.metadata.timelineScope?.programme===undefined;
+    const missingTimeline=reusable&&process.env.PT3_PROGRAMME_TIMELINE!=='0'&&r.metadata.state==='confirmed'&&r.metadata.timelineScope?.programme===undefined;
     const backfill=reusable&&r.metadata.state==='confirmed'&&(missingOrigin||missingChannel||missingTimeline);
     if(reusable&&!backfill)return {metadata:r.metadata,cached:true};
     let metadata: RecordingMetadata;

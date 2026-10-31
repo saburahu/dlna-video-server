@@ -25,7 +25,7 @@ export function createPcrBackground(data:string,folders:()=>string[],trace:(even
  async function initialize(){
   if(db)return;await fs.mkdir(data,{recursive:true});new DiagnosticLog(cacheDir).assertSeparate(folders());
   try{policy=validatePcrPolicy(JSON.parse(await fs.readFile(policyFile,'utf8')));}catch(e:any){if(e.code!=='ENOENT')throw e;}
-  const {DatabaseSync}=await import('node:sqlite');db=new DatabaseSync(path.join(data,'pcr-cache.sqlite'));
+  const {DatabaseSync}=await import('node:sqlite');if(closed)return;db=new DatabaseSync(path.join(data,'pcr-cache.sqlite'));
   db.exec(`PRAGMA journal_mode=WAL; PRAGMA busy_timeout=5000;
    CREATE TABLE IF NOT EXISTS pcr_sources(path_key TEXT PRIMARY KEY,source TEXT NOT NULL,root TEXT NOT NULL,size INTEGER NOT NULL,mtime REAL NOT NULL,fingerprint TEXT NOT NULL,state TEXT NOT NULL,stable_since REAL NOT NULL,observations INTEGER NOT NULL,last_seen INTEGER NOT NULL,retry_at REAL NOT NULL DEFAULT 0,error TEXT,cache_name TEXT,cache_key TEXT,cache_bytes INTEGER NOT NULL DEFAULT 0,missing_since REAL,missing_count INTEGER NOT NULL DEFAULT 0);
    CREATE INDEX IF NOT EXISTS pcr_queue ON pcr_sources(state,retry_at,stable_since,path_key);
@@ -37,11 +37,21 @@ export function createPcrBackground(data:string,folders:()=>string[],trace:(even
   // Validate the existing metadata schema/fingerprint lazily, one row at a time.
   db.exec("UPDATE pcr_sources SET metadata_state=NULL,metadata_retry_at=0,metadata_error=NULL WHERE metadata_state='ready' OR metadata_state IS NULL");
   // One bounded-metadata directory reconciliation at startup, never per Browse/UI.
-  const seen=new Set<string>();for(const name of await fs.readdir(cacheDir).catch(e=>{if(e.code==='ENOENT')return [];throw e;})){
+  const seen=new Set<string>(),entries:{name:string;bytes:number}[]=[];for(const name of await fs.readdir(cacheDir).catch(e=>{if(e.code==='ENOENT')return [];throw e;})){
    if(!/^[a-f0-9]{64}\.json(?:\.[a-f0-9-]+\.tmp)?$/.test(name))continue;
-   const st=await fs.lstat(path.join(cacheDir,name));if(!st.isFile()||st.isSymbolicLink())continue;seen.add(name);db.prepare('INSERT INTO pcr_files(name,bytes) VALUES(?,?) ON CONFLICT(name) DO UPDATE SET bytes=excluded.bytes').run(name,st.size);counters.initialInventoryFiles++;
+   if(closed)return;const st=await fs.lstat(path.join(cacheDir,name));if(closed)return;if(!st.isFile()||st.isSymbolicLink())continue;seen.add(name);entries.push({name,bytes:st.size});
   }
-  for(const row of db.prepare('SELECT name FROM pcr_files').all() as any[])if(!seen.has(row.name))db.prepare('DELETE FROM pcr_files WHERE name=?').run(row.name);
+  // Inspect the complete directory before changing the durable inventory. One
+  // short, synchronous transaction avoids thousands of WAL commits and never
+  // holds a writer lock across filesystem awaits. No schema/format change.
+  if(closed)return;db.exec('BEGIN');try{
+   const upsert=db.prepare('INSERT INTO pcr_files(name,bytes) VALUES(?,?) ON CONFLICT(name) DO UPDATE SET bytes=excluded.bytes');
+   for(const entry of entries)upsert.run(entry.name,entry.bytes);
+   const remove=db.prepare('DELETE FROM pcr_files WHERE name=?');
+   for(const row of db.prepare('SELECT name FROM pcr_files').all() as any[])if(!seen.has(row.name))remove.run(row.name);
+   db.exec('COMMIT');
+  }catch(e){db.exec('ROLLBACK');throw e;}
+  counters.initialInventoryFiles+=entries.length;
   installCachePolicy();pcrWork.pause(policy.paused||!policy.enabled);pcrWork.observer(trace);
  }
  function installCachePolicy(){configurePcrCache({maxDiskBytes:policy.maxDiskBytes,minFreeBytes:policy.minFreeBytes,usage:()=>Number((db!.prepare('SELECT coalesce(sum(bytes),0) bytes FROM pcr_files').get() as any).bytes)},entry=>{
@@ -170,6 +180,6 @@ export function createPcrBackground(data:string,folders:()=>string[],trace:(even
   async inspect(){await open();try{await space();}catch(e){lastError=String(e);}return this.status();},
   status(){const counts=db?.prepare('SELECT state,count(*) count FROM pcr_sources GROUP BY state').all()??[],usage=db?.prepare('SELECT count(*) files,coalesce(sum(bytes),0) bytes FROM pcr_files').get();const rootHolds=db?.prepare('SELECT source,blocked reason FROM pcr_roots WHERE blocked IS NOT NULL').all()??[],recentErrors=db?.prepare('SELECT source,error,retry_at FROM pcr_sources WHERE error IS NOT NULL ORDER BY retry_at DESC LIMIT 5').all()??[];const metadataCounts=db?.prepare("SELECT coalesce(metadata_state,'pending') state,count(*) count FROM pcr_sources GROUP BY metadata_state").all()??[];return {policy:{...policy},reason,cleanupHold,rootHolds,recentErrors,metadataCounts,freeBytes,lastError,...counters,counts,usage,work:pcrWork.status()};},
   configure(patch:Partial<PcrBackgroundPolicy>){const job=configuration.then(async()=>{await open();if(closed)throw Error('PCR manager stopped');const next=validatePcrPolicy({...policy,...patch}),tmp=policyFile+'.tmp';await fs.writeFile(tmp,JSON.stringify(next,null,2));await fs.rename(tmp,policyFile);policy=next;installCachePolicy();pcrWork.pause(policy.paused||!policy.enabled);lastSpaceCheck=0;return this.status();});configuration=job.catch(()=>{});return job;},
-  async stop(){closed=true;if(timer)clearTimeout(timer);pcrWork.cancelBackground('shutdown');await configuration;await maintenance;await generation;pcrWork.observer(()=>{});configurePcrCache({maxDiskBytes:null,minFreeBytes:2*1024**3});db?.close();db=undefined;}
+  async stop(){closed=true;if(timer)clearTimeout(timer);pcrWork.cancelBackground('shutdown');await configuration;await maintenance;await generation;await opening?.catch(()=>{});pcrWork.observer(()=>{});configurePcrCache({maxDiskBytes:null,minFreeBytes:2*1024**3});db?.close();db=undefined;}
  };
 }

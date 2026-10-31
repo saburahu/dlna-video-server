@@ -8,7 +8,7 @@ import { spawn, type ChildProcess } from 'node:child_process';
 import { once } from 'node:events';
 import { setTimeout as sleep } from 'node:timers/promises';
 import { fixture } from './broadcast-fixture.js';
-test('OFF -> automatic programme publication, old aliases, source bytes, seeks, revision invalidation, restart and rollback', { timeout: 120000 }, async (t) => {
+test('OFF -> default ON programme publication, old aliases, source bytes, seeks, revision invalidation, restart and rollback', { timeout: 120000 }, async (t) => {
     const root = await fs.mkdtemp(path.join(os.tmpdir(), 'pt3-programme-http-')), data = path.join(root, 'data'), media = path.join(root, 'media'), source = path.join(media, 'source.ts');
     await fs.mkdir(data);
     await fs.mkdir(media);
@@ -20,14 +20,14 @@ test('OFF -> automatic programme publication, old aliases, source bytes, seeks, 
     await fs.writeFile(path.join(data, 'pcr-cache-policy.json'), JSON.stringify({ settleMs: 20, idleGraceMs: 100, readBytesPerSecond: 64 * 1024 ** 2, minFreeBytes: 0 }));
     await fs.mkdir(path.join(data, 'experimental-catalog'));
     await fs.writeFile(path.join(data, 'experimental-catalog', 'library.json'), JSON.stringify({ version: 'recording-library-v1', enabled: true }));
-    let child: ChildProcess | undefined, base = '';
+    let child: ChildProcess | undefined, base = '', complete = false;
     const stop = async () => { if (child && child.exitCode === null && child.signalCode === null) {
         const done = once(child, 'exit');
         child.kill();
         await done;
     } child = undefined; };
-    t.after(async () => { await stop(); await fs.rm(root, { recursive: true, force: true }); });
-    const start = async (enabled: boolean) => { child = spawn(process.execPath, ['--import', 'tsx', process.env.PT3_TEST_DIST === '1' ? 'dist/src/server.js' : 'src/server.ts'], { env: { ...process.env, PT3_DATA_DIR: data, PT3_LOG_DIR: path.join(root, 'logs'), PT3_DISABLE_SSDP: '1', PT3_BIND_LOOPBACK: '1', PT3_PROGRAMME_TIMELINE: enabled ? '1' : '0', PT3_BACKGROUND_PROCESS_OVERRIDE: '1', PT3_SHADOW_DISABLED: '1' }, stdio: ['ignore', 'pipe', 'pipe'] }); base = await new Promise<string>((resolve, reject) => { let text = ''; const timeout = setTimeout(() => reject(Error(text)), 20000); const read = (b: Buffer) => { text += b; const m = /localhost:(\d+)/.exec(text); if (m && text.includes('スキャン完了')) {
+    t.after(async () => { await stop(); if(!complete&&process.env.PT3_TEST_FAILURE_DIR){const dest=path.join(process.env.PT3_TEST_FAILURE_DIR,path.basename(root));await fs.mkdir(path.dirname(dest),{recursive:true});await fs.cp(root,dest,{recursive:true});} await fs.rm(root, { recursive: true, force: true }); });
+    const start = async (enabled: boolean) => { const env: NodeJS.ProcessEnv = { ...process.env, PT3_DATA_DIR: data, PT3_LOG_DIR: path.join(root, 'logs'), PT3_DISABLE_SSDP: '1', PT3_BIND_LOOPBACK: '1', PT3_BACKGROUND_PROCESS_OVERRIDE: '1', PT3_SHADOW_DISABLED: '1' }; if(enabled)delete env.PT3_PROGRAMME_TIMELINE;else env.PT3_PROGRAMME_TIMELINE='0'; child = spawn(process.execPath, ['--import', 'tsx', process.env.PT3_TEST_DIST === '1' ? 'dist/src/server.js' : 'src/server.ts'], { env, stdio: ['ignore', 'pipe', 'pipe'] }); base = await new Promise<string>((resolve, reject) => { let text = ''; const timeout = setTimeout(() => reject(Error(text)), 20000); const read = (b: Buffer) => { text += b; const m = /localhost:(\d+)/.exec(text); if (m && text.includes('スキャン完了')) {
         clearTimeout(timeout);
         resolve('http://127.0.0.1:' + m[1]);
     } }; child!.stdout!.on('data', read); child!.stderr!.on('data', read); child!.once('error', reject); child!.once('exit', code => { if (code)
@@ -54,7 +54,10 @@ test('OFF -> automatic programme publication, old aliases, source bytes, seeks, 
             break;
         await sleep(30);
     }
-    assert.ok(xml.includes('/programme-v1/'),xml+JSON.stringify({pcr:await fetch(base+'/api/pcr-cache').then(r=>r.json()),tail:(await fs.readFile(path.join(root,'logs','diagnostics.jsonl'),'utf8')).split(/\r?\n/).slice(-25)}));
+    if(!xml.includes('/programme-v1/')){
+        const lines=(await fs.readFile(path.join(root,'logs','diagnostics.jsonl'),'utf8')).split(/\r?\n/);
+        assert.fail(JSON.stringify({pcr:await fetch(base+'/api/pcr-cache').then(r=>r.json()),metadataErrors:lines.filter(l=>l.includes('RECORDING_METADATA_DEFERRED')),tail:lines.slice(-3)}));
+    }
     assert.match(xml, /<item\b[^>]*id=/, xml);
     const newId = /<item[^>]* id="([^"]+)/.exec(xml)![1], newPath = new URL(/<res\b[^>]*>([^<]+)/.exec(xml)![1]);
     assert.ok(newId.startsWith('programme:'));
@@ -136,7 +139,10 @@ test('OFF -> automatic programme publication, old aliases, source bytes, seeks, 
             break;
         await sleep(50);
     }
-    assert.ok((await browse('all')).includes('/programme-v1/'),JSON.stringify({pcr:await fetch(base+'/api/pcr-cache').then(r=>r.json()),tail:(await fs.readFile(path.join(root,'logs','diagnostics.jsonl'),'utf8')).split(/\r?\n/).slice(-25)}));
+    if(!(await browse('all')).includes('/programme-v1/')){
+        const lines=(await fs.readFile(path.join(root,'logs','diagnostics.jsonl'),'utf8')).split(/\r?\n/);
+        assert.fail(JSON.stringify({pcr:await fetch(base+'/api/pcr-cache').then(r=>r.json()),metadataErrors:lines.filter(l=>l.includes('RECORDING_METADATA_DEFERRED')),tail:lines.slice(-3)}));
+    }
     const afterUpdate = Number(/<Id>(\d+)/.exec(await fetch(base + '/upnp/control/content-directory', { method: 'POST', headers: { SOAPAction: '"urn:schemas-upnp-org:service:ContentDirectory:1#GetSystemUpdateID"' } }).then(r => r.text()))![1]);
     assert.ok(afterUpdate > beforeUpdate);
     for (let i = 0; i < 150 && !notify.some(n => n.includes('<SystemUpdateID>' + afterUpdate + '</SystemUpdateID>')); i++)
@@ -167,4 +173,5 @@ test('OFF -> automatic programme publication, old aliases, source bytes, seeks, 
     const final = await fs.stat(source);
     assert.equal(final.size, stamp.size);
     assert.equal(final.mtimeMs, stamp.mtimeMs);
+    complete = true;
 });
