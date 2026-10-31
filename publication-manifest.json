@@ -440,14 +440,14 @@
         "X9900R",
         "DBR-T1010"
       ],
-      "sha256": "f31d677f286a143e4e8c57f4e190f7a5e56d3a4dd00e50f8a1eae173be1ba765"
+      "sha256": "74e5498de94fe4dda1db05d353d8ebfff8566caf28b6d2fc8ca75b67e93e062e"
     },
     "CHANGELOG.md": {
       "models": [
         "X9900R",
         "DBR-T1010"
       ],
-      "sha256": "549bcd3b6a7a4e69bf65760c0175ae504d79cd25bbccaed264437e0d2125e499"
+      "sha256": "e3799fc8783f1b1fef432056041e8afd84e0a402c82b91bff3b4073c7553fe60"
     },
     "docs/PROGRAMME-TIMELINE.md": {
       "models": [
