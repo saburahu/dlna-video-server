@@ -6,6 +6,7 @@
     ".github/ISSUE_TEMPLATE/bug_report.md",
     ".github/ISSUE_TEMPLATE/config.yml",
     ".gitignore",
+    "BROADCAST_METADATA.md",
     "CHANGELOG.md",
     "DBR_COLOR_MANAGED_TRIAL.md",
     "DBR_COLOR_SWITCH_SESSION.md",
@@ -16,6 +17,7 @@
     "NOTICE",
     "README.md",
     "RECEIVER_PLAYBACK_PROFILES.md",
+    "RECORDING_DIDL_TRIAL.md",
     "REGZA_CONTAINER_CFR.md",
     "REGZA_RELEASE_PARITY.md",
     "VIRTUAL_FOLDERS.md",
@@ -36,6 +38,7 @@
     "docs/MULTI-AUDIO.md",
     "docs/NEXT-RELEASE.md",
     "docs/ONBOARDING_VALIDATION.md",
+    "docs/PROGRAMME-TIMELINE.md",
     "docs/PUBLIC-INFORMATION.md",
     "docs/PUBLICATION_CHECKLIST.md",
     "docs/RECEIVER-COMPATIBILITY.md",
@@ -46,6 +49,7 @@
     "docs/SETUP.md",
     "docs/TROUBLESHOOTING.md",
     "docs/UPDATE.md",
+    "docs/VALIDATION-044.md",
     "package-lock.json",
     "package.json",
     "packaging/Audit-cache.cmd",
@@ -71,6 +75,7 @@
     "packaging/release-notes/0.4.1.md",
     "packaging/release-notes/0.4.2.md",
     "packaging/release-notes/0.4.3.md",
+    "packaging/release-notes/0.4.4.md",
     "packaging/release-sync.mjs",
     "packaging/release-sync.test.mjs",
     "packaging/runtime-files.mjs",
@@ -215,9 +220,12 @@
     "src/receiver-playback-profile.ts",
     "src/receiver-wmv-cfr-trial.ts",
     "src/recording-client-audit.ts",
+    "src/recording-didl-trial.ts",
     "src/recording-event.ts",
     "src/recording-library.ts",
     "src/recording-metadata.ts",
+    "src/recording-programme.ts",
+    "src/recording-si.ts",
     "src/recording-time-contract.ts",
     "src/registry-adapter.ts",
     "src/server.ts",
@@ -256,6 +264,12 @@
     "test/avc-http-control.test.ts",
     "test/avc-picture-trial.test.ts",
     "test/branding.test.ts",
+    "test/broadcast-auto-http.test.ts",
+    "test/broadcast-channel.test.ts",
+    "test/broadcast-didl-timezone.test.ts",
+    "test/broadcast-fixture.ts",
+    "test/broadcast-metadata.test.ts",
+    "test/broadcast-rc-audit.test.ts",
     "test/cadence-normalization.test.ts",
     "test/cadence-plan.test.ts",
     "test/catalog-background.test.ts",
@@ -362,9 +376,15 @@
     "test/receiver-playback-profile.test.ts",
     "test/receiver-wmv-cfr-trial.test.ts",
     "test/recording-client-audit.test.ts",
+    "test/recording-clock-origin.test.ts",
+    "test/recording-didl-trial.test.ts",
     "test/recording-event.test.ts",
     "test/recording-library.test.ts",
+    "test/recording-metadata-publication.test.ts",
     "test/recording-metadata.test.ts",
+    "test/recording-programme-event.test.ts",
+    "test/recording-programme-http.test.ts",
+    "test/recording-programme.test.ts",
     "test/recording-time-contract.test.ts",
     "test/recording-time-seek-mapping.test.ts",
     "test/recursive-store.test.ts",
@@ -405,5 +425,35 @@
     "tools/verify-synthetic.mjs",
     "tsconfig.build.json",
     "tsconfig.json"
-  ]
+  ],
+  "reviewedReceiverModelDocs": {
+    "README.md": {
+      "models": [
+        "X9900R",
+        "DBR-T1010"
+      ],
+      "sha256": "2a6f777179eded94cafa7c76f440d047c3103ed35e4a7ba3032d2b8254106afe"
+    },
+    "CHANGELOG.md": {
+      "models": [
+        "X9900R",
+        "DBR-T1010"
+      ],
+      "sha256": "36b3d251a0c166ac185615b9df77b30630fe24680dd9810f659860032bbc17dc"
+    },
+    "docs/PROGRAMME-TIMELINE.md": {
+      "models": [
+        "X9900R",
+        "DBR-T1010"
+      ],
+      "sha256": "686eb91819696284167cc913e6770a8bb89fb496f2fdd1219b462bff76b6075e"
+    },
+    "docs/VALIDATION-044.md": {
+      "models": [
+        "X9900R",
+        "DBR-T1010"
+      ],
+      "sha256": "f056a2a934d089858dd16e6f4d7f9bff1380510cbe20cbb8dbf9c619f8a69738"
+    }
+  }
 }

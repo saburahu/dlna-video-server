@@ -8,7 +8,8 @@ const rules=[['github-credential',/\b(?:gh[pousr]_[A-Za-z0-9]{30,}|github_pat_[A
 let fixtureIps=0,fixtureUdns=0;const files=[];
 for(const p of found){const b=await fs.readFile(path.join(root,p));if(b.includes(0))findings.push({path:p,rule:'binary-file-in-source'});const text=b.toString('utf8');for(const[name,re]of rules)if(re.test(text))findings.push({path:p,rule:name});for(let i=0;i<terms.length;i++)if(terms[i]&&text.includes(terms[i]))findings.push({path:p,rule:'external-private-term-'+i});
  if(p.startsWith('docs/')||['README.md','CHANGELOG.md'].includes(p)){
-  if(/\b(?:ZP2|(?:55)?X9900R|49Z700X|DBR-[A-Z0-9]+)\b/.test(text))findings.push({path:p,rule:'receiver-model-in-public-document-needs-review'});
+  const models=[...text.matchAll(/\b(?:ZP2|(?:55)?X9900R|49Z700X|DBR-[A-Z0-9]+)\b/g)].map(m=>m[0]),review=policy.reviewedReceiverModelDocs?.[p];
+  if(models.length&&(!review||models.some(m=>!review.models?.includes(m))||review.sha256!==createHash('sha256').update(b).digest('hex')))findings.push({path:p,rule:'receiver-model-in-public-document-needs-review'});
   if(/\b20\d{2}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/.test(text))findings.push({path:p,rule:'operation-timestamp-in-public-document'});
  }
  for(const m of text.matchAll(/\b(?:10(?:\.\d{1,3}){3}|192\.168(?:\.\d{1,3}){2}|172\.(?:1[6-9]|2\d|3[01])(?:\.\d{1,3}){2})\b/g)){if(p.startsWith('test/')||/^src\/verify-/.test(p))fixtureIps++;else findings.push({path:p,rule:'private-address-literal-outside-synthetic-test'});}
