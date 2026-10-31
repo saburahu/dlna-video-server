@@ -51,6 +51,7 @@
     "docs/TROUBLESHOOTING.md",
     "docs/UPDATE.md",
     "docs/VALIDATION-044.md",
+    "docs/VALIDATION-045.md",
     "package-lock.json",
     "package.json",
     "packaging/Audit-cache.cmd",
@@ -77,6 +78,7 @@
     "packaging/release-notes/0.4.2.md",
     "packaging/release-notes/0.4.3.md",
     "packaging/release-notes/0.4.4.md",
+    "packaging/release-notes/0.4.5.md",
     "packaging/release-sync.mjs",
     "packaging/release-sync.test.mjs",
     "packaging/runtime-files.mjs",
@@ -438,14 +440,14 @@
         "X9900R",
         "DBR-T1010"
       ],
-      "sha256": "2a6f777179eded94cafa7c76f440d047c3103ed35e4a7ba3032d2b8254106afe"
+      "sha256": "f31d677f286a143e4e8c57f4e190f7a5e56d3a4dd00e50f8a1eae173be1ba765"
     },
     "CHANGELOG.md": {
       "models": [
         "X9900R",
         "DBR-T1010"
       ],
-      "sha256": "44efb214abd3b9efb10d1e9ad4a677319306c47c9b9c7497aae6c6aea98a2f5c"
+      "sha256": "549bcd3b6a7a4e69bf65760c0175ae504d79cd25bbccaed264437e0d2125e499"
     },
     "docs/PROGRAMME-TIMELINE.md": {
       "models": [
