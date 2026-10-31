@@ -9,7 +9,9 @@ import { regzaRecordingIdentity } from './recording-didl-trial.js';
 import { packetTime, parseTimeSeek } from './time-seek.js';
 import { contentPacketLayout } from './content-packet.js';
 const hash = (value: unknown) => createHash('sha256').update(JSON.stringify(value)).digest('hex').slice(0, 24);
-export const programmeEnabled = () => process.env.PT3_PROGRAMME_TIMELINE === '1';
+// Eligible recordings use the verified programme view by default. An explicit
+// process-local 0 retains the whole-recording projection without rewriting settings.
+export const programmeEnabled = () => process.env.PT3_PROGRAMME_TIMELINE !== '0';
 export function parseProgrammeId(id: string) { const m = /^programme:([a-f0-9]+):([a-f0-9]{24})(?::([A-Za-z0-9_-]{1,256}))?$/.exec(id); if (!m)
     return null; if (m[3]) {
     const alias = Buffer.from(m[3], 'base64url').toString();

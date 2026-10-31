@@ -1,8 +1,9 @@
-# Programme-relative recording timeline (v0.4.4 development)
+# Programme-relative recording timeline (v0.4.4 RC)
 
-This development feature is **OFF by default**. Developers select it with
-`PT3_PROGRAMME_TIMELINE=1` at process startup. Do not enable it on an existing
-server until its separate validation is authorized. There is no new user-facing
+This RC enables eligible programme views **by default** after product-integrated
+receiver validation. `PT3_PROGRAMME_TIMELINE=0` is a process-local development
+opt-out; existing settings files are not rewritten. The selection body is unchanged
+from the explicitly enabled receiver-tested integration. There is no new user-facing
 folder, management tab, per-recording registration, or separate playback server.
 `PT3_BIND_LOOPBACK=1` is available for isolated HTTP tests; SSDP must also be disabled
 there with the existing `PT3_DISABLE_SSDP=1` switch.
@@ -80,7 +81,7 @@ not rely on the old development URL-guessing hook.
 
 The existing low-priority metadata worker reuses valid PCR caches. Older summaries
 only retained the primary event, which cannot exclude a second complete programme.
-When full event-set evidence is missing, enabling this development feature requires
+When full event-set evidence is missing, using this feature requires
 one whole-file EIT pass through that same bounded/serial/playback-prioritized worker.
 A prefix is not accepted as proof that another programme is absent. Existing origin
 and channel-only supplementation can still use its bounded prefix. Unknown or
@@ -110,6 +111,7 @@ Tests cover automatic preparation from old caches, one-item Browse, folder alias
 virtual paging, legacy Metadata and URLs, HEAD/GET/Seek source bytes, revision
 rejection, corrupted metadata recovery, GENA, reconnect/cancellation cleanup,
 restart and disabling the feature. Synthetic tests and PC HTTP do not extend
-previous receiver observations into full-length/EOF guarantees. Product integration
-must be verified through the normal directory once separately enabled; the earlier
-isolated prototype remains evidence only for that prototype's receiver behaviour.
+previous receiver observations into full-length/EOF guarantees. User-reported product integration validation: X9900R normal folders, metadata, scene
+list/jumps, playback and ordinary Seek succeeded; DBR-T1010 ordinary playback and
+recording-list metadata succeeded. The earlier isolated prototype is separate
+evidence. No full-length receiver EOF or all-model compatibility claim is made.

@@ -1,6 +1,6 @@
 # v0.4.4候補: 録画TSの静的放送メタデータ
 
-通常起動・通常の録画フォルダー探索から、安定したTSのSIをアイドル時に自動解析します。手動登録や明示解析を通常利用の前提にしません。テレビ画面の表示成功はまだ未確認です。
+通常起動・通常の録画フォルダー探索から、安定したTSのSIをアイドル時に自動解析します。手動登録や明示解析を通常利用の前提にしません。製品統合版はX9900RとDBR-T1010で一覧情報と通常再生を確認済みです。X9900Rではシーンリストとジャンプも成功しています。未確認の全機種・全素材・全編自然終了を保証しません。
 
 ## 既存機構への追加
 
@@ -42,7 +42,7 @@ PCRラップは既存索引で展開します。PCR不連続／異常interval、
 | 属性 | 通知する値 |
 |---|---|
 | dc:title / genre | 既存confirmed判定による番組名等。未確認なら従来fallback |
-| dc:date | confirmed録画の先頭時計（recordingOrigin、または既存のconsistent録画範囲のstart）。明示JST +09:00。番組予定でNPT0を代用せず、録画原点を得られないconfirmed項目では省略。未確定metadataの従来fallbackは維持 |
+| dc:date | 適格な番組資源ではEIT予定開始（番組NPT0）。旧whole資源ではconfirmed録画の先頭時計（recordingOrigin、または既存のconsistent録画範囲のstart）。明示JST +09:00。番組予定でNPT0を代用せず、録画原点を得られないconfirmed項目では省略。未確定metadataの従来fallbackは維持 |
 | upnp:channelNr | NIT/SDTを照合してARIB式で生成。不明な番号は省略 |
 | arib:objectType | 照合できた放送種別ARIB_TB/BS/CS。REGZA固有IDは付加しない |
 | upnp:channelName | 照合できたSDT局名をProgram.station経由で通知。既存の外部設定値は保持 |
@@ -62,11 +62,11 @@ RC監査では、PATのTSID変更、存在しない日付・zone欠落、0秒予
 
 開発環境の実録画検証で、statのミリ秒未満のmtimeとProgram.modifiedのISOミリ秒表現を直接比較すると、自動解析の結果が一覧へ反映されないことを確認しました。公開時の照合をISO保存精度へ揃え、解析前後とキャッシュの厳密なstat照合は維持しています。ミリ秒未満のmtimeを持つ実ファイルを使い、refresh/analyzeを呼ばず通常起動だけでDIDLが更新されるHTTP回帰テストを追加しました。
 
-実機写真で、一覧・番組詳細・再生タイムラインがUTCの時分をそのまま壁時計として表示する9時間ずれを確認。confirmedの放送由来dc:dateとscheduledStart/Endのみ、同一時点のJSTオフセット表記へ変更しました。cacheのUTC値・原TS・再生時刻・一般動画の日付fallbackは維持します。既存のディレクトリー表示revisionを2へ進め、UpdateIDとイベント通知で古い日時宣言の再取得を促します。日跨ぎ／年跨ぎ／閏日、既に+09:00の入力、瞬間の同値をテスト。実機の修正後表示は再確認まで未確認です。録画範囲の信頼条件250msは変更していません。
+実機写真で、一覧・番組詳細・再生タイムラインがUTCの時分をそのまま壁時計として表示する9時間ずれを確認。confirmedの放送由来dc:dateとscheduledStart/Endのみ、同一時点のJSTオフセット表記へ変更しました。cacheのUTC値・原TS・再生時刻・一般動画の日付fallbackは維持します。既存のディレクトリー表示revisionを2へ進め、UpdateIDとイベント通知で古い日時宣言の再取得を促します。日跨ぎ／年跨ぎ／閏日、既に+09:00の入力、瞬間の同値をテスト。後の製品統合版のユーザー確認では、両受信機の一覧日時・局名表示に成功しています。録画範囲の信頼条件250msは変更していません。
 
 ### 録画余白と時計原点の分離
 
-EIT予定開始は録画先頭ではありません。dc:dateを番組予定へ固定すると、受信機の再生時計が録画前余白ぶんずれます。予定はscheduledStart/Endへ残し、dc:dateにはTOT/PCRから得たファイルNPT0の時刻を使います。TS切詰め、映像PTS変更、予定時刻からの余白推測はしません。
+以下は旧whole資源の時計規則です。別のprogramme資源は番組開始NPT0を持ちます。EIT予定開始は録画先頭ではありません。dc:dateを番組予定へ固定すると、受信機の再生時計が録画前余白ぶんずれます。予定はscheduledStart/Endへ残し、dc:dateにはTOT/PCRから得たファイルNPT0の時刻を使います。TS切詰め、映像PTS変更、予定時刻からの余白推測はしません。
 
 追加recordingOrigin（version1、tot-pcr-prefix、estimated/unavailable、startTime、anchors、first/lastSeconds、spreadMs、uncertaintySeconds）は先頭時計だけの証拠です。先頭20秒の観測窓、TOT3点以上・5秒以上のspan、先頭アンカー10秒以内、250ms以内の局所offset幅、単一サービス/連続した全体PCRを必要条件とします。既存recordingRangeの全編250ms判定は不変。局所原点が得られても、全編範囲をconsistentへ変更しません。
 
@@ -95,3 +95,7 @@ channelInfo version1は既存schema2内の小さい補助情報です。旧confi
 
 TS情報記述子の伝送種別・サービスループ後にはSTD-B10でreserved_future_useが定義されています。ここを余剰バイトとして拒否していた解析不具合を修正。CRC・長さ・ループ境界・重複記述子の拒否は維持します。旧nit-missing-or-conflicting cacheだけを背景prefixで一度再確認し、なお未観測ならnitParserVersion=2として保存して反復を防ぎます。既存の正しい局情報や録画時計は再解析しません。
 根拠: https://www.arib.or.jp/english/html/overview/doc/6-STD-B10v5_13-E1.pdf （TS information descriptorの予約領域）
+
+## v0.4.4 RCの番組時間軸
+
+適格な単一完全番組では既定ONの番組時間軸を使用します。dc:dateは番組予定開始、durationは番組用範囲となり、旧whole URLの録画原点とは分離します。録画原点やTOT/PCRアンカーは変更しません。不適格なら従来の全体再生です。詳細はPROGRAMME-TIMELINE.md（Publicはdocs内）とRELEASE-NOTESを参照してください。

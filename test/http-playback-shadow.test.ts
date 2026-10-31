@@ -43,6 +43,10 @@ test('normal HTTP shadow cache failure preserves full TS/TTS, HEAD, TimeSeek, Ra
   // Compare equivalent warm metadata on both runs. Playback, not Browse,
   // establishes the exact wrapped size persisted for subsequent processes.
   await receive(base,{method:'HEAD',headers:{}});
+  // The programme projection deliberately gives each boot a fresh directory epoch.
+  // Compare every DIDL field while checking, rather than ignoring, that epoch.
+  const epoch=(xml:string)=>{const n=/<UpdateID>(\d+)<\/UpdateID>/.exec(xml);assert.ok(n);return Number(n[1]);};
+  const withoutEpoch=(xml:string)=>xml.replace(/<UpdateID>\d+<\/UpdateID>/,'<UpdateID>BOOT</UpdateID>');
   const normalBefore = await Promise.all(['rec', 'all', 'item:abcdef'].map(id => browse(base, id, id.startsWith('item:'))));
   for (const condition of conditions) before.push(await receive(base, condition));
   await stop();
@@ -57,7 +61,9 @@ test('normal HTTP shadow cache failure preserves full TS/TTS, HEAD, TimeSeek, Ra
   // Broken offline analysis, not a valid plan. The actual path must still succeed.
   await fs.mkdir(path.dirname(sourceCacheFile(shadow, file)), { recursive: true }); await fs.writeFile(sourceCacheFile(shadow, file), '{broken');
   const enabled = await start(false), after = [];
-  assert.deepEqual(await Promise.all(['rec', 'all', 'item:abcdef'].map(id => browse(enabled, id, id.startsWith('item:')))), normalBefore);
+  const current=await Promise.all(['rec', 'all', 'item:abcdef'].map(id => browse(enabled,id,id.startsWith('item:'))));
+  assert.notEqual(epoch(current[0]),epoch(normalBefore[0]),'Restart must invalidate the prior programme directory epoch');
+  assert.deepEqual(current.map(withoutEpoch),normalBefore.map(withoutEpoch));
   const experimental = await browse(enabled, 'experimental');
   for (const e of entries) assert.ok(!experimental.includes(e.filename));
   assert.ok(!experimental.includes('&lt;res '));
@@ -68,7 +74,7 @@ test('normal HTTP shadow cache failure preserves full TS/TTS, HEAD, TimeSeek, Ra
   // when an old offline manifest names them. They must remain inaccessible.
   assert.equal(refused.status, 404); assert.equal((await refused.arrayBuffer()).byteLength, 0);
   await fs.writeFile(path.join(dir, 'experimental', 'catalog.json'), '{broken');
-  assert.deepEqual(await Promise.all(['rec', 'all', 'item:abcdef'].map(id => browse(enabled, id, id.startsWith('item:')))), normalBefore);
+  assert.deepEqual(await Promise.all(['rec', 'all', 'item:abcdef'].map(id => browse(enabled, id, id.startsWith('item:')))), current, 'Corrupt shadow state must not alter this running directory epoch or DIDL');
   for (const condition of conditions) after.push(await receive(enabled, condition));
   for (let i = 0; i < before.length; i++) {
     assert.equal(after[i].status, before[i].status); assert.deepEqual(after[i].headers, before[i].headers); assert.deepEqual(after[i].body, before[i].body);
