@@ -344,6 +344,7 @@
     "test/library-scale.test.ts",
     "test/management-access.test.ts",
     "test/media-catalog-index.test.ts",
+    "test/metadata-cache-replace.test.ts",
     "test/metadata-startup.test.ts",
     "test/mpeg-ts-trial.test.ts",
     "test/mpeg2-color-normalization.test.ts",

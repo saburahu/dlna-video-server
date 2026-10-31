@@ -1,6 +1,7 @@
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import { createHash, randomUUID } from 'node:crypto';
+import {setTimeout as delay} from 'node:timers/promises';
 import { DiagnosticLog } from './diagnostic-log.js';
 import type { scanRecordingEit } from './eit-scanner.js';
 import type {EitScanOptions} from './eit-scanner.js';
@@ -143,6 +144,19 @@ export class RecordingMetadataCache {
   constructor(readonly directory = path.resolve(process.env.PT3_DATA_DIR || 'data', 'eit-cache'), private strategy: ScanStrategy = fullScan, private folders: string[] = []) {}
   private async identity(source:string){const s=await fs.stat(source,{bigint:true});return s.ino?`${s.dev}:${s.ino}:${s.birthtimeNs}`:await fs.realpath(source);}
   private async filename(source: string) { return path.join(this.directory, digest(await this.identity(source)) + '.json'); }
+  private async replace(temporary:string,filename:string,source:string,record:CacheRecord){
+    // Windows may reject replacing a destination held open for reading.
+    // Keep the old file intact: never unlink it or publish the temporary file.
+    const waits=[20,40,80,160];
+    for(let attempt=0;;attempt++)try{await fs.rename(temporary,filename);return;}
+    catch(e:any){
+      if(process.platform!=='win32'||!['EPERM','EBUSY'].includes(e.code)||attempt>=waits.length)throw e;
+      await delay(waits[attempt]);
+      this.separate(source);
+      const st=await fs.stat(source);
+      if(st.size!==record.size||st.mtimeMs!==record.mtimeMs||await this.identity(source)!==record.identity)throw new PcrDeferred('source-changed');
+    }
+  }
   private separate(source: string) { new DiagnosticLog(this.directory).assertSeparate([...this.folders, path.dirname(path.resolve(source))]); }
   private async record(source: string): Promise<CacheRecord | undefined> {
     try { this.separate(source); const identity=await this.identity(source);
@@ -215,7 +229,7 @@ export class RecordingMetadataCache {
     const record:CacheRecord = {version:2,source,identity:await this.identity(source),size:after.size,mtimeMs:after.mtimeMs,metadata,sha256:digest(JSON.stringify(metadata))};
     await fs.mkdir(this.directory,{recursive:true});this.separate(source);
     const filename=await this.filename(source),temporary = filename+'.'+randomUUID()+'.tmp';
-    try {await fs.writeFile(temporary,JSON.stringify(record));await fs.rename(temporary,filename);}
+    try {await fs.writeFile(temporary,JSON.stringify(record));await this.replace(temporary,filename,source,record);}
     finally {await fs.unlink(temporary).catch(()=>{});}
     return {metadata,cached:false};
   }
