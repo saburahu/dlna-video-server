@@ -1,4 +1,4 @@
-# v0.4.4候補: 録画TSの静的放送メタデータ
+# v0.4.4: 録画TSの静的放送メタデータ
 
 通常起動・通常の録画フォルダー探索から、安定したTSのSIをアイドル時に自動解析します。手動登録や明示解析を通常利用の前提にしません。製品統合版はX9900RとDBR-T1010で一覧情報と通常再生を確認済みです。X9900Rではシーンリストとジャンプも成功しています。未確認の全機種・全素材・全編自然終了を保証しません。
 
@@ -96,6 +96,6 @@ channelInfo version1は既存schema2内の小さい補助情報です。旧confi
 TS情報記述子の伝送種別・サービスループ後にはSTD-B10でreserved_future_useが定義されています。ここを余剰バイトとして拒否していた解析不具合を修正。CRC・長さ・ループ境界・重複記述子の拒否は維持します。旧nit-missing-or-conflicting cacheだけを背景prefixで一度再確認し、なお未観測ならnitParserVersion=2として保存して反復を防ぎます。既存の正しい局情報や録画時計は再解析しません。
 根拠: https://www.arib.or.jp/english/html/overview/doc/6-STD-B10v5_13-E1.pdf （TS information descriptorの予約領域）
 
-## v0.4.4 RCの番組時間軸
+## v0.4.4の番組時間軸
 
 適格な単一完全番組では既定ONの番組時間軸を使用します。dc:dateは番組予定開始、durationは番組用範囲となり、旧whole URLの録画原点とは分離します。録画原点やTOT/PCRアンカーは変更しません。不適格なら従来の全体再生です。詳細はPROGRAMME-TIMELINE.md（Publicはdocs内）とRELEASE-NOTESを参照してください。

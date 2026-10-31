@@ -1,6 +1,6 @@
-# Programme-relative recording timeline (v0.4.4 RC)
+# Programme-relative recording timeline (v0.4.4)
 
-This RC enables eligible programme views **by default** after product-integrated
+This release enables eligible programme views **by default** after product-integrated
 receiver validation. `PT3_PROGRAMME_TIMELINE=0` is a process-local development
 opt-out; existing settings files are not rewritten. The selection body is unchanged
 from the explicitly enabled receiver-tested integration. There is no new user-facing
